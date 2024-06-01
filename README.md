@@ -1,4 +1,5 @@
-# Experimental fork of the Deforum A1111 extension with the intent of making "turbo-frames" controllable directly.
+# Experimental 
+Esperimental fork of the Deforum A1111 extension with the intention of making "turbo-frames" controllable directly.
 Will require an experimental version of Parseq to supply new "is-turbo-frame" values, fork here: https://github.com/Tok/sd-parseq
 
 This is an experiment in progress and there's no good reason to install this as of now.
