@@ -58,17 +58,20 @@ from .video_audio_utilities import get_frame_name, get_next_frame, render_previe
 
 # TODO Temporary tuples to group some data. May be replaced later..
 Srt = namedtuple('Srt', ['filename', 'frame_duration'])
-Schedule = namedtuple('Schedule', [
-    'steps',
-    'sampler',
-    'clipskip',
-    'noise_multiplier',
-    'ddim_eta',
-    'ancestral_eta',
-    'mask',
-    'noise_mask'
-])
 AnimMode = namedtuple('AnimMode', ['hybrid_frame_path', 'prev_flow'])
+
+
+# TODO move elsewhere..
+class Schedule:
+    def __init__(self, steps, sampler_name, clipskip, noise_multiplier, ddim_eta, ancestral_eta, mask, noise_mask):
+        self.steps = steps
+        self.sampler_name = sampler_name
+        self.clipskip = clipskip
+        self.noise_multiplier = noise_multiplier
+        self.ddim_eta = ddim_eta
+        self.ancestral_eta = ancestral_eta
+        self.mask = mask
+        self.noise_mask = noise_mask
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
@@ -223,19 +226,11 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
                 keys.hybrid_comp_mask_auto_contrast_cutoff_high_schedule_series[frame_idx]),
             "flow_factor": keys.hybrid_flow_factor_schedule_series[frame_idx]
         }
-        scheduled_sampler_name = None
-        scheduled_clipskip = None
-        scheduled_noise_multiplier = None
-        scheduled_ddim_eta = None
-        scheduled_ancestral_eta = None
-
-        mask_seq = None
-        noise_mask_seq = None
 
         schedule = apply_scheduling(keys, frame_idx, anim_args, args)  #FIXME dead code??
 
         if args.use_mask and not anim_args.use_noise_mask:
-            noise_mask_seq = mask_seq
+            noise_mask_seq = schedule.mask_seq
 
         depth = None
 
@@ -521,11 +516,11 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
             mask_vals['video_mask'] = temp_mask
 
         if args.use_mask:
-            args.mask_image = compose_mask_with_check(root, args, mask_seq, mask_vals, root.init_sample) \
+            args.mask_image = compose_mask_with_check(root, args, schedule.mask_seq, mask_vals, root.init_sample) \
                 if root.init_sample is not None else None  # we need it only after the first frame anyway
 
         setup_looper_arguments(loop_args, loop_schedules_and_data, frame_idx)
-        setup_opts(opts, scheduled_clipskip, scheduled_noise_multiplier, scheduled_ddim_eta, scheduled_ancestral_eta)
+        setup_opts(opts, schedule)
 
         if anim_args.animation_mode == '3D' and (cmd_opts.lowvram or cmd_opts.medvram):
             if is_predicting_depths: depth_model.to('cpu')
@@ -543,7 +538,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
                 f"Optical flow redo is diffusing and warping using {optical_flow_redo_generation} and seed {args.seed} optical flow before generation.")
 
             disposable_image = generate(args, keys, anim_args, loop_args, controlnet_args, root, parseq_adapter,
-                                        frame_idx, sampler_name=scheduled_sampler_name)
+                                        frame_idx, sampler_name=schedule.sampler_name)
             disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
             disposable_flow = get_flow_from_images(prev_img, disposable_image, optical_flow_redo_generation, raft_model)
             disposable_image = cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB)
@@ -560,7 +555,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
                 print(f"Redo generation {n + 1} of {int(anim_args.diffusion_redo)} before final generation")
                 args.seed = random.randint(0, 2 ** 32 - 1)
                 disposable_image = generate(args, keys, anim_args, loop_args, controlnet_args, root, parseq_adapter,
-                                            frame_idx, sampler_name=scheduled_sampler_name)
+                                            frame_idx, sampler_name=schedule.sampler_name)
                 disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
                 # color match on last one only
                 if n == int(anim_args.diffusion_redo):
@@ -572,7 +567,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
 
         # generation
         image = generate(args, keys, anim_args, loop_args, controlnet_args, root, parseq_adapter, frame_idx,
-                         sampler_name=scheduled_sampler_name)
+                         sampler_name=schedule.sampler_name)
 
         if image is None:
             break
@@ -658,14 +653,14 @@ def set_if_not_none(dictionary, key, value):
         dictionary[key] = value
 
 
-def setup_opts(opts, scheduled_clipskip, scheduled_noise_multiplier, scheduled_ddim_eta, scheduled_ancestral_eta):
+def setup_opts(opts, schedule):
     if has_img2img_fix_steps(opts):
         # disable "with img2img do exactly x steps" from general setting, as it *ruins* deforum animations
         opts.data["img2img_fix_steps"] = False  # TODO is this ever true?
-    set_if_not_none(opts.data, "CLIP_stop_at_last_layers", scheduled_clipskip)
-    set_if_not_none(opts.data, "initial_noise_multiplier", scheduled_noise_multiplier)
-    set_if_not_none(opts.data, "eta_ddim", scheduled_ddim_eta)
-    set_if_not_none(opts.data, "eta_ancestral", scheduled_ancestral_eta)
+    set_if_not_none(opts.data, "CLIP_stop_at_last_layers", schedule.clipskip)
+    set_if_not_none(opts.data, "initial_noise_multiplier", schedule.noise_multiplier)
+    set_if_not_none(opts.data, "eta_ddim", schedule.ddim_eta)
+    set_if_not_none(opts.data, "eta_ancestral", schedule.ancestral_eta)
 
 
 def setup_looper_arguments(loop_args, loop_schedules_and_data, i):
@@ -746,14 +741,14 @@ def schedule_noise_mask(keys, i, anim_args):
 
 def apply_scheduling(keys, i, anim_args, args):
     """Apply various scheduling settings based on the current frame index."""
-    return Schedule(schedule_steps(keys, i, anim_args),
-                    schedule_sampler(keys, i, anim_args),
-                    schedule_clipskip(keys, i, anim_args),
-                    schedule_noise_multiplier(keys, i, anim_args),
-                    schedule_ddim_eta(keys, i, anim_args),
-                    schedule_ancestral_eta(keys, i, anim_args),
-                    schedule_mask(keys, i, args),  #TODO for some reason use_mask is in args instead of anim_args
-                    schedule_noise_mask(keys, i, anim_args))
+    return Schedule(steps=schedule_steps(keys, i, anim_args),
+                    sampler_name=schedule_sampler(keys, i, anim_args),
+                    clipskip=schedule_clipskip(keys, i, anim_args),
+                    noise_multiplier=schedule_noise_multiplier(keys, i, anim_args),
+                    ddim_eta=schedule_ddim_eta(keys, i, anim_args),
+                    ancestral_eta=schedule_ancestral_eta(keys, i, anim_args),
+                    mask=schedule_mask(keys, i, args),  #TODO for some reason use_mask is in args instead of anim_args
+                    noise_mask=schedule_noise_mask(keys, i, anim_args))
 
 
 def apply_animation_mode_settings(anim_args, args, loop_args, root):
