@@ -31,7 +31,6 @@ from modules.shared import opts, cmd_opts, state, sd_model
 
 from .RAFT import RAFT
 from .animation import anim_frame_warp
-from .animation_key_frames import AnimationKeys, DeformAnimKeys, LooperAnimKeys
 from .colors import maintain_colors
 from .composable_masks import compose_mask_with_check
 from .deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
@@ -54,7 +53,7 @@ from .settings import save_settings_from_animation_run
 from .subtitle_handler import write_frame_subtitle, format_animation_params
 from .video_audio_utilities import get_frame_name, get_next_frame, render_preview
 
-from .render_tools import AnimationMode, Schedule, Srt
+from .render_tools import AnimationKeys, AnimationMode, Schedule, Srt
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
