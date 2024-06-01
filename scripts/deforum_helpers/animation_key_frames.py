@@ -11,7 +11,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-
+import dataclasses
 # Contact the authors: https://deforum.github.io/
 
 import re
@@ -97,6 +97,23 @@ class LooperAnimKeys():
         self.blendFactorSlope_series = self.fi.parse_inbetweens(loop_args.blendFactorSlope, 'blendFactorSlope')
         self.tweening_frames_schedule_series = self.fi.parse_inbetweens(loop_args.tweening_frames_schedule, 'tweening_frames_schedule')
         self.color_correction_factor_series = self.fi.parse_inbetweens(loop_args.color_correction_factor, 'color_correction_factor')
+
+
+@dataclasses.dataclass
+class AnimationKeys:
+    def __init__(self, deform_keys: DeformAnimKeys, looper_keys: LooperAnimKeys):
+        self.deform_keys = deform_keys  # Not a typo. It's about deforming the frame.
+        self.looper_keys = looper_keys
+
+    def update(self, i: int):
+        self.looper_keys.use_looper = self.looper_keys.use_looper
+        self.looper_keys.imagesToKeyframe = self.looper_keys.imagesToKeyframe
+        # TODO FIXME refactor index handling and remove new boilerplate
+        self.looper_keys.imageStrength = self.looper_keys.image_strength_schedule_series[i]
+        self.looper_keys.blendFactorMax = self.looper_keys.blendFactorMax_series[i]
+        self.looper_keys.blendFactorSlope = self.looper_keys.blendFactorSlope_series[i]
+        self.looper_keys.tweeningFramesSchedule = self.looper_keys.tweening_frames_schedule_series[i]
+        self.looper_keys.colorCorrectionFactor = self.looper_keys.color_correction_factor_series[i]
 
 class FrameInterpolater():
     def __init__(self, max_frames=0, seed=-1) -> None:

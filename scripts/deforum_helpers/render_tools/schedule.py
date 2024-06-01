@@ -19,6 +19,7 @@ class Schedule:
 
     @classmethod
     def create(cls, keys, i, anim_args, args):
+        # TODO typecheck keys as DeformAnimKeys or provide key collection or something
         """Create a new Schedule instance based on the provided parameters."""
         steps = cls.schedule_steps(keys, i, anim_args)
         sampler_name = cls.schedule_sampler(keys, i, anim_args)
