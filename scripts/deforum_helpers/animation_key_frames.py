@@ -115,6 +115,20 @@ class AnimationKeys:
         self.looper_keys.tweeningFramesSchedule = self.looper_keys.tweening_frames_schedule_series[i]
         self.looper_keys.colorCorrectionFactor = self.looper_keys.color_correction_factor_series[i]
 
+    @staticmethod
+    def use_value_or_parseq_value(value, parseq_value, parseq_adapter):
+        return value if not parseq_adapter.use_parseq else parseq_value
+
+    @staticmethod
+    def from_args(anim_args, loop_args, parseq_adapter, seed):
+        # Parseq keys are decorated, see ParseqAinmKeysDecorator and ParseqLooperKeysDecorator
+        new_deform_keys: DeformAnimKeys = AnimationKeys.use_value_or_parseq_value(
+            DeformAnimKeys(anim_args, seed), parseq_adapter.anim_keys, parseq_adapter)
+        new_looper_keys: LooperAnimKeys = AnimationKeys.use_value_or_parseq_value(
+            LooperAnimKeys(loop_args, anim_args, seed), parseq_adapter.looper_keys, parseq_adapter)
+        return AnimationKeys(new_deform_keys, new_looper_keys)
+
+
 class FrameInterpolater():
     def __init__(self, max_frames=0, seed=-1) -> None:
         self.max_frames = max_frames

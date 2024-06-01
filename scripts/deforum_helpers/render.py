@@ -65,9 +65,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
     handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
 
     # TODO eventually try to init animation keys right after parseq adapter
-    # old code for temp reference:
-    #   keys, loop_schedules_and_data = expand_key_frame_strings_to_values(anim_args, args, parseq_adapter, loop_args)
-    animation_keys = expand_key_frame_strings_to_values(anim_args, loop_args, parseq_adapter, args.seed)
+    animation_keys = AnimationKeys.from_args(anim_args, loop_args, parseq_adapter, args.seed)
 
     create_output_folder_for_the_batch(args)
 
@@ -696,21 +694,6 @@ def handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_
 def create_output_folder_for_the_batch(args):
     os.makedirs(args.outdir, exist_ok=True)
     print(f"Saving animation frames to:\n{args.outdir}")
-
-
-def use_value_or_parseq_value(value, parseq_value, parseq_adapter):
-    return value if not parseq_adapter.use_parseq else parseq_value
-
-
-def expand_key_frame_strings_to_values(anim_args, loop_args, parseq_adapter, seed):
-    # TODO this should return an instance of AnimationKeys, but probably keep inheritance out of it, right?
-    # Parseq keys are decorated, see ParseqAnimKeysDecorator and ParseqLooperKeysDecorator
-    deform_keys: DeformAnimKeys = use_value_or_parseq_value(DeformAnimKeys(anim_args, seed),
-                                                             parseq_adapter.anim_keys, parseq_adapter)
-    looper_keys: LooperAnimKeys = use_value_or_parseq_value(LooperAnimKeys(loop_args, anim_args, seed),
-                                                            parseq_adapter.looper_keys, parseq_adapter)
-    return AnimationKeys(deform_keys, looper_keys)
-
 
 
 def load_depth_model_for_3d(args, anim_args):
