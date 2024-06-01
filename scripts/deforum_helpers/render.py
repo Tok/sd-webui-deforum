@@ -56,22 +56,12 @@ from .subtitle_handler import init_srt_file, write_frame_subtitle, format_animat
 from .video_audio_utilities import get_frame_name, get_next_frame, render_preview
 
 
+from .render_tools import Schedule
+
+
 # TODO Temporary tuples to group some data. May be replaced later..
 Srt = namedtuple('Srt', ['filename', 'frame_duration'])
 AnimMode = namedtuple('AnimMode', ['hybrid_frame_path', 'prev_flow'])
-
-
-# TODO move elsewhere..
-class Schedule:
-    def __init__(self, steps, sampler_name, clipskip, noise_multiplier, ddim_eta, ancestral_eta, mask, noise_mask):
-        self.steps = steps
-        self.sampler_name = sampler_name
-        self.clipskip = clipskip
-        self.noise_multiplier = noise_multiplier
-        self.ddim_eta = ddim_eta
-        self.ancestral_eta = ancestral_eta
-        self.mask = mask
-        self.noise_mask = noise_mask
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
@@ -659,8 +649,8 @@ def setup_opts(opts, schedule):
         opts.data["img2img_fix_steps"] = False  # TODO is this ever true?
     set_if_not_none(opts.data, "CLIP_stop_at_last_layers", schedule.clipskip)
     set_if_not_none(opts.data, "initial_noise_multiplier", schedule.noise_multiplier)
-    set_if_not_none(opts.data, "eta_ddim", schedule.ddim_eta)
-    set_if_not_none(opts.data, "eta_ancestral", schedule.ancestral_eta)
+    set_if_not_none(opts.data, "eta_ddim", schedule.eta_ddim)
+    set_if_not_none(opts.data, "eta_ancestral", schedule.eta_ancestral)
 
 
 def setup_looper_arguments(loop_args, loop_schedules_and_data, i):
@@ -745,8 +735,8 @@ def apply_scheduling(keys, i, anim_args, args):
                     sampler_name=schedule_sampler(keys, i, anim_args),
                     clipskip=schedule_clipskip(keys, i, anim_args),
                     noise_multiplier=schedule_noise_multiplier(keys, i, anim_args),
-                    ddim_eta=schedule_ddim_eta(keys, i, anim_args),
-                    ancestral_eta=schedule_ancestral_eta(keys, i, anim_args),
+                    eta_ddim=schedule_ddim_eta(keys, i, anim_args),
+                    eta_ancestral=schedule_ancestral_eta(keys, i, anim_args),
                     mask=schedule_mask(keys, i, args),  #TODO for some reason use_mask is in args instead of anim_args
                     noise_mask=schedule_noise_mask(keys, i, anim_args))
 
