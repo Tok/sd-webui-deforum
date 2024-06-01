@@ -76,8 +76,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
     srt = prepare_subtitle_file_if_active(args.outdir, root.timestring, video_args.fps)
     anim_mode, args, anim_args, inputfiles = apply_animation_mode_settings(anim_args, args, loop_args, root)
     handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
-    # TODO rename loopSchedulesAndData to snake case?
-    keys, loopSchedulesAndData = expand_key_frame_strings_to_values(anim_args, args, parseq_adapter, loop_args)
+    keys, loop_schedules_and_data = expand_key_frame_strings_to_values(anim_args, args, parseq_adapter, loop_args)
     create_output_folder_for_the_batch(args)
 
     # save settings.txt file for the current run
@@ -515,27 +514,17 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
             args.init_image_box = None  # init_image_box not used in this case
             args.strength = max(0.0, min(1.0, strength))
         if anim_args.use_mask_video:
-            args.mask_file = get_mask_from_file(get_next_frame(args.outdir, anim_args.video_mask_path, frame_idx, True),
-                                                args)
-            root.noise_mask = get_mask_from_file(
-                get_next_frame(args.outdir, anim_args.video_mask_path, frame_idx, True), args)
-
-            mask_vals['video_mask'] = get_mask_from_file(
-                get_next_frame(args.outdir, anim_args.video_mask_path, frame_idx, True), args)
+            mask_init_frame = get_next_frame(args.outdir, anim_args.video_mask_path, frame_idx, True)
+            temp_mask = get_mask_from_file(mask_init_frame, args)
+            args.mask_file = temp_mask
+            root.noise_mask = temp_mask
+            mask_vals['video_mask'] = temp_mask
 
         if args.use_mask:
-            args.mask_image = compose_mask_with_check(root, args, mask_seq, mask_vals,
-                                                      root.init_sample) if root.init_sample is not None else None  # we need it only after the first frame anyway
+            args.mask_image = compose_mask_with_check(root, args, mask_seq, mask_vals, root.init_sample) \
+                if root.init_sample is not None else None  # we need it only after the first frame anyway
 
-        # setting up some arguments for the looper
-        loop_args.imageStrength = loopSchedulesAndData.image_strength_schedule_series[frame_idx]
-        loop_args.blendFactorMax = loopSchedulesAndData.blendFactorMax_series[frame_idx]
-        loop_args.blendFactorSlope = loopSchedulesAndData.blendFactorSlope_series[frame_idx]
-        loop_args.tweeningFrameSchedule = loopSchedulesAndData.tweening_frames_schedule_series[frame_idx]
-        loop_args.colorCorrectionFactor = loopSchedulesAndData.color_correction_factor_series[frame_idx]
-        loop_args.use_looper = loopSchedulesAndData.use_looper
-        loop_args.imagesToKeyframe = loopSchedulesAndData.imagesToKeyframe
-
+        setup_looper_arguments(loop_args, loop_schedules_and_data, frame_idx);
         if 'img2img_fix_steps' in opts.data and opts.data[
             "img2img_fix_steps"]:  # disable "with img2img do exactly x steps" from general setting, as it *ruins* deforum animations
             opts.data["img2img_fix_steps"] = False
@@ -600,20 +589,16 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
 
         # do hybrid video after generation
         if frame_idx > 0 and anim_args.hybrid_composite == 'After Generation':
-            image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-            args, image = hybrid_composite(args, anim_args, frame_idx, image, depth_model, hybrid_comp_schedules, root)
-            image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            temp_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            args, temp_image_2 = hybrid_composite(args, anim_args, frame_idx, temp_image, depth_model, hybrid_comp_schedules, root)
+            image = Image.fromarray(cv2.cvtColor(temp_image_2, cv2.COLOR_BGR2RGB))
 
         # color matching on first frame is after generation, color match was collected earlier, so we do an extra generation to avoid the corruption introduced by the color match of first output
-        if frame_idx == 0 and (anim_args.color_coherence == 'Image' or (
-                anim_args.color_coherence == 'Video Input' and hybrid_available)):
-            image = maintain_colors(cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR), color_match_sample,
-                                    anim_args.color_coherence)
-            image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-        elif color_match_sample is not None and anim_args.color_coherence != 'None' and not anim_args.legacy_colormatch:
-            image = maintain_colors(cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR), color_match_sample,
-                                    anim_args.color_coherence)
-            image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+
+        if frame_idx == 0 and should_initialize_color_match(anim_args, hybrid_available, color_match_sample):
+            temp_color = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            temp_image = maintain_colors(temp_color, color_match_sample, anim_args.color_coherence)
+            image = Image.fromarray(cv2.cvtColor(temp_image, cv2.COLOR_BGR2RGB))
 
         # intercept and override to grayscale
         if anim_args.color_force_grayscale:
@@ -661,6 +646,26 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
                                                        root, frame_idx, last_preview_frame)
         update_tracker(root, frame_idx, anim_args)
         cleanup(is_predicting_depths, is_keep_in_vram, depth_model, is_raft_active, raft_model)
+
+
+def should_initialize_color_match(anim_args, hybrid_available, color_match_sample):
+    """Determines whether to initialize color matching based on the given conditions."""
+    has_video_input = anim_args.color_coherence == 'Video Input' and hybrid_available
+    has_image_color_coherence = anim_args.color_coherence == 'Image'
+    has_any_color_sample = color_match_sample is not None
+    has_coherent_non_legacy_color_match = anim_args.color_coherence != 'None' and not anim_args.legacy_colormatch
+    has_sample_and_match = has_any_color_sample and has_coherent_non_legacy_color_match
+    return has_video_input or has_image_color_coherence or has_sample_and_match
+
+
+def setup_looper_arguments(loop_args, loop_schedules_and_data, i):
+    loop_args.imageStrength = loop_schedules_and_data.image_strength_schedule_series[i]
+    loop_args.blendFactorMax = loop_schedules_and_data.blendFactorMax_series[i]
+    loop_args.blendFactorSlope = loop_schedules_and_data.blendFactorSlope_series[i]
+    loop_args.tweeningFrameSchedule = loop_schedules_and_data.tweening_frames_schedule_series[i]
+    loop_args.colorCorrectionFactor = loop_schedules_and_data.color_correction_factor_series[i]
+    loop_args.use_looper = loop_schedules_and_data.use_looper
+    loop_args.imagesToKeyframe = loop_schedules_and_data.imagesToKeyframe
 
 
 def prepare_subtitle_file_if_active(outdir, timestring, fps):
