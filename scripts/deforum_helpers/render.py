@@ -217,7 +217,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
             "flow_factor": keys.hybrid_flow_factor_schedule_series[frame_idx]
         }
 
-        schedule = apply_scheduling(keys, frame_idx, anim_args, args)  #FIXME dead code??
+        schedule = Schedule.create(keys, frame_idx, anim_args, args)
 
         if args.use_mask and not anim_args.use_noise_mask:
             noise_mask_seq = schedule.mask_seq
@@ -670,75 +670,6 @@ def prepare_subtitle_file_if_active(outdir, timestring, fps):
         frame_duration = init_srt_file(filename, fps)
         return Srt(filename, frame_duration)
 
-
-def has_schedule(keys, i):
-    return keys.steps_schedule_series[i] is not None
-
-
-def has_mask_schedule(keys, i):
-    return keys.mask_schedule_series[i] is not None
-
-
-def has_noise_mask_schedule(keys, i):
-    return keys.noise_mask_schedule_series[i] is not None
-
-
-def use_on_cond_if_scheduled(keys, i, value, cond):
-    return value if cond and has_schedule(keys, i) else None
-
-
-def schedule_steps(keys, i, anim_args):
-    return use_on_cond_if_scheduled(keys, i, int(keys.steps_schedule_series[i]),
-                                    anim_args.enable_steps_scheduling)
-
-
-def schedule_sampler(keys, i, anim_args):
-    return use_on_cond_if_scheduled(keys, i, keys.sampler_schedule_series[i].casefold(),
-                                    anim_args.enable_sampler_scheduling)
-
-
-def schedule_clipskip(keys, i, anim_args):
-    return use_on_cond_if_scheduled(keys, i, int(keys.clipskip_schedule_series[i]),
-                                    anim_args.enable_clipskip_scheduling)
-
-
-def schedule_noise_multiplier(keys, i, anim_args):
-    return use_on_cond_if_scheduled(keys, i, float(keys.noise_multiplier_schedule_series[i]),
-                                    anim_args.enable_noise_multiplier_scheduling)
-
-
-def schedule_ddim_eta(keys, i, anim_args):
-    return use_on_cond_if_scheduled(keys, i, float(keys.ddim_eta_schedule_series[i]),
-                                    anim_args.enable_ddim_eta_scheduling)
-
-
-def schedule_ancestral_eta(keys, i, anim_args):
-    return use_on_cond_if_scheduled(keys, i, float(keys.ancestral_eta_schedule_series[i]),
-                                    anim_args.enable_ancestral_eta_scheduling)
-
-
-def schedule_mask(keys, i, args):
-    #TODO can we have a mask schedule without a normal schedule? if so check and optimize
-    return keys.mask_schedule_series[i] \
-        if args.use_mask and has_mask_schedule(keys, i) else None
-
-
-def schedule_noise_mask(keys, i, anim_args):
-    #TODO can we have a noise mask schedule without a mask- and normal schedule? if so check and optimize
-    return keys.noise_mask_schedule_series[i] \
-        if anim_args.use_noise_mask and has_noise_mask_schedule(keys, i) else None
-
-
-def apply_scheduling(keys, i, anim_args, args):
-    """Apply various scheduling settings based on the current frame index."""
-    return Schedule(steps=schedule_steps(keys, i, anim_args),
-                    sampler_name=schedule_sampler(keys, i, anim_args),
-                    clipskip=schedule_clipskip(keys, i, anim_args),
-                    noise_multiplier=schedule_noise_multiplier(keys, i, anim_args),
-                    eta_ddim=schedule_ddim_eta(keys, i, anim_args),
-                    eta_ancestral=schedule_ancestral_eta(keys, i, anim_args),
-                    mask=schedule_mask(keys, i, args),  #TODO for some reason use_mask is in args instead of anim_args
-                    noise_mask=schedule_noise_mask(keys, i, anim_args))
 
 
 def apply_animation_mode_settings(anim_args, args, loop_args, root):
