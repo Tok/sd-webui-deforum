@@ -18,7 +18,6 @@ import gc
 import os
 import random
 import time
-from collections import namedtuple
 
 import PIL
 import cv2
@@ -52,21 +51,16 @@ from .resume import get_resume_vars
 from .save_images import save_image
 from .seed import next_seed
 from .settings import save_settings_from_animation_run
-from .subtitle_handler import init_srt_file, write_frame_subtitle, format_animation_params
+from .subtitle_handler import write_frame_subtitle, format_animation_params
 from .video_audio_utilities import get_frame_name, get_next_frame, render_preview
 
 
-from .render_tools import Schedule
-
-
-# TODO Temporary tuples to group some data. May be replaced later..
-Srt = namedtuple('Srt', ['filename', 'frame_duration'])
-AnimMode = namedtuple('AnimMode', ['hybrid_frame_path', 'prev_flow'])
+from .render_tools import AnimationMode, Schedule, Srt
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
     parseq_adapter = initialize_parseq_adapter(parseq_args, anim_args, video_args, controlnet_args, loop_args)
-    srt = prepare_subtitle_file_if_active(args.outdir, root.timestring, video_args.fps)
+    srt = Srt.create_if_active(opts.data, args.outdir, root.timestring, video_args.fps)
     anim_mode, args, anim_args, inputfiles = apply_animation_mode_settings(anim_args, args, loop_args, root)
     handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
     keys, loop_schedules_and_data = expand_key_frame_strings_to_values(anim_args, args, parseq_adapter, loop_args)
@@ -663,15 +657,6 @@ def setup_looper_arguments(loop_args, loop_schedules_and_data, i):
     loop_args.imagesToKeyframe = loop_schedules_and_data.imagesToKeyframe
 
 
-def prepare_subtitle_file_if_active(outdir, timestring, fps):
-    if opts.data.get("deforum_save_gen_info_as_srt", False):
-        # create .srt file and set timeframe mechanism using FPS
-        filename = os.path.join(outdir, f"{timestring}.srt")
-        frame_duration = init_srt_file(filename, fps)
-        return Srt(filename, frame_duration)
-
-
-
 def apply_animation_mode_settings(anim_args, args, loop_args, root):
     hybrid_frame_path = None
     prev_flow = None
@@ -694,7 +679,7 @@ def apply_animation_mode_settings(anim_args, args, loop_args, root):
             args.seed_behavior = "schedule"
             if not isJson(loop_args.init_images):
                 raise RuntimeError("The images set for use with keyframe-guidance are not in a proper JSON format")
-        return AnimMode(hybrid_frame_path, prev_flow), args, anim_args, inputfiles
+        return AnimationMode(hybrid_frame_path, prev_flow), args, anim_args, inputfiles
 
 
 def initialize_parseq_adapter(parseq_args, anim_args, video_args, controlnet_args, loop_args):
