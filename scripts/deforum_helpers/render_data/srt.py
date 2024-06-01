@@ -1,12 +1,13 @@
+import dataclasses
 import os
 
 from ..subtitle_handler import init_srt_file
 
 
+@dataclasses.dataclass
 class Srt:
-    def __init__(self, filename: str, frame_duration: int):
-        self._filename = filename
-        self._frame_duration = frame_duration
+    filename: str
+    frame_duration: int
 
     def __new__(cls, *args, **kwargs):  # locks the constructor to enforce proper initialization
         raise TypeError("Use Srt.create_if_active() to create new instances.")
@@ -17,9 +18,9 @@ class Srt:
             return None
         else:
             # create .srt file and set timeframe mechanism using FPS
-            filename = os.path.join(outdir, f"{timestring}.srt")
-            frame_duration = init_srt_file(filename, fps)
+            intial_filename = os.path.join(outdir, f"{timestring}.srt")
+            intial_frame_duration = init_srt_file(intial_filename, fps)
 
             instance = object.__new__(cls)  # creating the instance without raising the type error defined in __new__.
-            instance.__init__(filename, frame_duration)
+            instance.__init__(intial_filename, intial_frame_duration)
             return instance

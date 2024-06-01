@@ -5,9 +5,8 @@ from ..animation_key_frames import DeformAnimKeys, LooperAnimKeys
 
 @dataclasses.dataclass
 class AnimationKeys:
-    def __init__(self, deform_keys: DeformAnimKeys, looper_keys: LooperAnimKeys):
-        self.deform_keys = deform_keys  # Not a typo. It's about deforming the frame.
-        self.looper_keys = looper_keys
+    deform_keys: DeformAnimKeys
+    looper_keys: LooperAnimKeys
 
     def update(self, i: int):
         self.looper_keys.use_looper = self.looper_keys.use_looper

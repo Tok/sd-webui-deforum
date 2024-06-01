@@ -1,18 +1,17 @@
+import dataclasses
 from typing import Optional, Any
 
 
+@dataclasses.dataclass
 class Schedule:
-    def __init__(self, steps: int, sampler_name: str, clipskip: int,
-                 noise_multiplier: float, eta_ddim: float, eta_ancestral: float,
-                 mask: Optional[Any] = None, noise_mask: Optional[Any] = None):
-        self._steps = steps
-        self._sampler_name = sampler_name
-        self._clipskip = clipskip
-        self._noise_multiplier = noise_multiplier
-        self._eta_ddim = eta_ddim
-        self._eta_ancestral = eta_ancestral  # TODO unify ddim- and a-eta to use one or the other, depending on sampler
-        self.mask = mask
-        self.noise_mask = noise_mask
+    steps: int
+    sampler_name: str
+    clipskip: int
+    noise_multiplier: float
+    eta_ddim: float
+    eta_ancestral: float  # TODO unify ddim- and a-eta to use one or the other, depending on sampler
+    mask: Optional[Any]
+    noise_mask: Optional[Any]
 
     def __new__(cls, *args, **kwargs):  # locks the normal constructor to enforce proper initialization
         raise TypeError("Use Schedule.create() to create new instances.")
@@ -91,43 +90,3 @@ class Schedule:
         #TODO can we have a noise mask schedule without a mask- and normal schedule? if so check and optimize
         return keys.noise_mask_schedule_series[i] \
             if anim_args.use_noise_mask and cls._has_noise_mask_schedule(keys, i) else None
-
-    @property
-    def steps(self) -> int:
-        return self._steps
-
-    @property
-    def sampler_name(self) -> str:
-        return self._sampler_name
-
-    @property
-    def clipskip(self) -> int:
-        return self._clipskip
-
-    @property
-    def noise_multiplier(self) -> float:
-        return self._noise_multiplier
-
-    @property
-    def eta_ddim(self) -> float:
-        return self._eta_ddim
-
-    @property
-    def eta_ancestral(self) -> float:
-        return self._eta_ancestral
-
-    @property
-    def mask(self) -> Optional[Any]:
-        return self._mask
-
-    @mask.setter
-    def mask(self, value):
-        self._mask = value
-
-    @property
-    def noise_mask(self) -> Optional[Any]:
-        return self._noise_mask
-
-    @noise_mask.setter
-    def noise_mask(self, value):
-        self._noise_mask = value

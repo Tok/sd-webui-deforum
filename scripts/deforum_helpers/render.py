@@ -53,7 +53,7 @@ from .settings import save_settings_from_animation_run
 from .subtitle_handler import write_frame_subtitle, format_animation_params
 from .video_audio_utilities import get_frame_name, get_next_frame, render_preview
 
-from .render_tools import AnimationKeys, AnimationMode, Schedule, Srt
+from .render_data import AnimationKeys, AnimationMode, Schedule, Srt
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
