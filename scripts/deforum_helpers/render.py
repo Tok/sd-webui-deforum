@@ -524,18 +524,8 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
             args.mask_image = compose_mask_with_check(root, args, mask_seq, mask_vals, root.init_sample) \
                 if root.init_sample is not None else None  # we need it only after the first frame anyway
 
-        setup_looper_arguments(loop_args, loop_schedules_and_data, frame_idx);
-        if 'img2img_fix_steps' in opts.data and opts.data[
-            "img2img_fix_steps"]:  # disable "with img2img do exactly x steps" from general setting, as it *ruins* deforum animations
-            opts.data["img2img_fix_steps"] = False
-        if scheduled_clipskip is not None:
-            opts.data["CLIP_stop_at_last_layers"] = scheduled_clipskip
-        if scheduled_noise_multiplier is not None:
-            opts.data["initial_noise_multiplier"] = scheduled_noise_multiplier
-        if scheduled_ddim_eta is not None:
-            opts.data["eta_ddim"] = scheduled_ddim_eta
-        if scheduled_ancestral_eta is not None:
-            opts.data["eta_ancestral"] = scheduled_ancestral_eta
+        setup_looper_arguments(loop_args, loop_schedules_and_data, frame_idx)
+        setup_opts(opts, scheduled_clipskip, scheduled_noise_multiplier, scheduled_ddim_eta, scheduled_ancestral_eta)
 
         if anim_args.animation_mode == '3D' and (cmd_opts.lowvram or cmd_opts.medvram):
             if is_predicting_depths: depth_model.to('cpu')
@@ -593,8 +583,8 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
             args, temp_image_2 = hybrid_composite(args, anim_args, frame_idx, temp_image, depth_model, hybrid_comp_schedules, root)
             image = Image.fromarray(cv2.cvtColor(temp_image_2, cv2.COLOR_BGR2RGB))
 
-        # color matching on first frame is after generation, color match was collected earlier, so we do an extra generation to avoid the corruption introduced by the color match of first output
-
+        # color matching on first frame is after generation, color match was collected earlier,
+        # so we do an extra generation to avoid the corruption introduced by the color match of first output
         if frame_idx == 0 and should_initialize_color_match(anim_args, hybrid_available, color_match_sample):
             temp_color = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
             temp_image = maintain_colors(temp_color, color_match_sample, anim_args.color_coherence)
@@ -656,6 +646,26 @@ def should_initialize_color_match(anim_args, hybrid_available, color_match_sampl
     has_coherent_non_legacy_color_match = anim_args.color_coherence != 'None' and not anim_args.legacy_colormatch
     has_sample_and_match = has_any_color_sample and has_coherent_non_legacy_color_match
     return has_video_input or has_image_color_coherence or has_sample_and_match
+
+
+def has_img2img_fix_steps(opts):
+    return 'img2img_fix_steps' in opts.data and opts.data["img2img_fix_steps"]
+
+
+def set_if_not_none(dictionary, key, value):
+    # TODO Helper method, move elsewhere?
+    if value is not None:
+        dictionary[key] = value
+
+
+def setup_opts(opts, scheduled_clipskip, scheduled_noise_multiplier, scheduled_ddim_eta, scheduled_ancestral_eta):
+    if has_img2img_fix_steps(opts):
+        # disable "with img2img do exactly x steps" from general setting, as it *ruins* deforum animations
+        opts.data["img2img_fix_steps"] = False  # TODO is this ever true?
+    set_if_not_none(opts.data, "CLIP_stop_at_last_layers", scheduled_clipskip)
+    set_if_not_none(opts.data, "initial_noise_multiplier", scheduled_noise_multiplier)
+    set_if_not_none(opts.data, "eta_ddim", scheduled_ddim_eta)
+    set_if_not_none(opts.data, "eta_ancestral", scheduled_ancestral_eta)
 
 
 def setup_looper_arguments(loop_args, loop_schedules_and_data, i):
