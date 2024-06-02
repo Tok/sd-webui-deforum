@@ -70,19 +70,19 @@ class AnimationMode:
             if opts.data.get("deforum_keep_3d_models_in_vram", False) else None
 
     @staticmethod
-    def from_args(anim_args, args, opts, root):
+    def from_args(step_args):
         init_hybrid_input_files: Any = None
         init_hybrid_frame_path = ""
-        if AnimationMode._is_needing_hybris_frames(anim_args):
+        if AnimationMode._is_needing_hybris_frames(step_args.anim_args):
             # handle hybrid video generation
             # hybrid_generation may cause side effects on args and anim_args
-            _, __, init_hybrid_input_files = hybrid_generation(args, anim_args, root)
+            _, __, init_hybrid_input_files = hybrid_generation(step_args.args, step_args.anim_args, step_args.root)
             # path required by hybrid functions, even if hybrid_comp_save_extra_frames is False
-            init_hybrid_frame_path = os.path.join(args.outdir, 'hybridframes')
-        return AnimationMode(AnimationMode._has_video_input(anim_args),
+            init_hybrid_frame_path = os.path.join(step_args.args.outdir, 'hybridframes')
+        return AnimationMode(AnimationMode._has_video_input(step_args.anim_args),
                              init_hybrid_input_files,
                              init_hybrid_frame_path,
                              None,
-                             opts.data.get("deforum_keep_3d_models_in_vram", False),
-                             AnimationMode._load_depth_model_if_active(args, anim_args, opts),
-                             AnimationMode._load_raft_if_active(anim_args, args))
+                             step_args.opts.data.get("deforum_keep_3d_models_in_vram", False),
+                             AnimationMode._load_depth_model_if_active(step_args.args, step_args.anim_args, step_args.opts),
+                             AnimationMode._load_raft_if_active(step_args.anim_args, step_args.args))

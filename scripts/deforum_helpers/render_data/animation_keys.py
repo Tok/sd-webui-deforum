@@ -23,10 +23,10 @@ class AnimationKeys:
         return default_keys if not parseq_adapter.use_parseq else parseq_keys
 
     @staticmethod
-    def from_args(anim_args, loop_args, parseq_adapter, seed):
+    def from_args(step_args, parseq_adapter, seed):
         # Parseq keys are decorated, see ParseqAinmKeysDecorator and ParseqLooperKeysDecorator
         return AnimationKeys(
-            AnimationKeys.choose_default_or_parseq_keys(DeformAnimKeys(anim_args, seed),
+            AnimationKeys.choose_default_or_parseq_keys(DeformAnimKeys(step_args.anim_args, seed),
                                                         parseq_adapter.anim_keys, parseq_adapter),
-            AnimationKeys.choose_default_or_parseq_keys(LooperAnimKeys(loop_args, anim_args, seed),
+            AnimationKeys.choose_default_or_parseq_keys(LooperAnimKeys(step_args.loop_args, step_args.anim_args, seed),
                                                         parseq_adapter.looper_keys, parseq_adapter))
