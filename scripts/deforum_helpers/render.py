@@ -36,8 +36,7 @@ from .composable_masks import compose_mask_with_check
 from .deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
 from .depth import DepthModel
 from .generate import generate, isJson
-from .hybrid_video import (
-    hybrid_generation, hybrid_composite, get_matrix_for_hybrid_motion, get_matrix_for_hybrid_motion_prev,
+from .hybrid_video import (hybrid_composite, get_matrix_for_hybrid_motion, get_matrix_for_hybrid_motion_prev,
     get_flow_for_hybrid_motion, get_flow_for_hybrid_motion_prev, image_transform_ransac,
     image_transform_optical_flow, get_flow_from_images, abs_flow_to_rel_flow, rel_flow_to_abs_flow)
 from .image_sharpening import unsharp_mask
@@ -60,34 +59,17 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
     animation_keys = AnimationKeys.from_args(anim_args, loop_args, parseq_adapter, args.seed)
     srt = Srt.create_if_active(opts.data, args.outdir, root.timestring, video_args.fps)
     anim_mode = AnimationMode.from_args(anim_args, args, root)  # possible side effects on anim_args and args
-
     init_looper_if_active(args, loop_args)
     handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
     create_output_directory_for_the_batch(args)
-
-    # save settings.txt file for the current run
-    save_settings_from_animation_run(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
-
-    # resume from timestring
-    if anim_args.resume_from_timestring:
-        root.timestring = anim_args.resume_timestring
-
-    # Always enable pseudo-3d with parseq. No need for an extra toggle:
-    # Whether it's used or not in practice is defined by the schedules
-    if parseq_adapter.use_parseq:
-        anim_args.flip_2d_perspective = True
-
-    if parseq_adapter.manages_prompts():
-        prompt_series = animation_keys.deform_keys.prompts
-    else:
-        prompt_series = expand_prompts_out_to_per_frame(anim_args, root)
+    save_settings_txt(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
+    root.timestring = maybe_resume_from_timestring(anim_args, root.timestring)
+    prompt_series = select_prompts(parseq_adapter, anim_args, animation_keys, root)
 
     # TODO bundle..
-    is_using_init_video = anim_args.animation_mode == 'Video Input'  # check for video inits
-    is_predicting_depths = load_depth_model_for_3d(args, anim_args)
     is_keep_in_vram = None
 
-    if is_predicting_depths:
+    if anim_mode.is_predicting_depths:
         is_keep_in_vram = opts.data.get("deforum_keep_3d_models_in_vram")
         device = ('cpu' if cmd_opts.lowvram or cmd_opts.medvram else root.device)
         depth_model = DepthModel(root.models_path, device, root.half_precision, keep_in_vram=is_keep_in_vram,
@@ -104,7 +86,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
     is_raft_active, raft_model = load_raft(args, anim_args)
 
     # state for interpolating between diffusion steps
-    turbo_steps = 1 if is_using_init_video else int(anim_args.diffusion_cadence)
+    turbo_steps = 1 if anim_mode.has_video_input else int(anim_args.diffusion_cadence)
     turbo_prev_image, turbo_prev_frame_idx = None, 0
     turbo_next_image, turbo_next_frame_idx = None, 0
 
@@ -501,7 +483,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
         args.prompt = prepare_prompt(args.prompt, anim_args.max_frames, args.seed, frame_idx)
 
         # grab init image for current frame
-        if is_using_init_video:
+        if anim_mode.has_video_input:
             init_frame = get_next_frame(args.outdir, anim_args.video_init_path, frame_idx, False)
             print(f"Using video init frame {init_frame}")
             args.init_image = init_frame
@@ -601,7 +583,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
             color_match_sample = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
 
         opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        if not is_using_init_video:
+        if not anim_mode.has_video_input:
             prev_img = opencv_image
 
         if turbo_steps > 1:
@@ -630,7 +612,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
         last_preview_frame = progress_and_make_preview(state, image, args, anim_args, video_args,
                                                        root, frame_idx, last_preview_frame)
         update_tracker(root, frame_idx, anim_args)
-        cleanup(is_predicting_depths, is_keep_in_vram, depth_model, is_raft_active, raft_model)
+        cleanup(anim_mode.is_predicting_depths, is_keep_in_vram, depth_model, is_raft_active, raft_model)
 
 
 def should_initialize_color_match(anim_args, hybrid_available, color_match_sample):
@@ -664,7 +646,12 @@ def setup_opts(opts, schedule):
 
 
 def initialize_parseq_adapter(parseq_args, anim_args, video_args, controlnet_args, loop_args):
-    return ParseqAdapter(parseq_args, anim_args, video_args, controlnet_args, loop_args)
+    # Always enable pseudo-3d with parseq. No need for an extra toggle:
+    # Whether it's used or not in practice is defined by the schedules
+    adapter = ParseqAdapter(parseq_args, anim_args, video_args, controlnet_args, loop_args)
+    if adapter.use_parseq:
+        anim_args.flip_2d_perspective = True
+    return adapter
 
 
 def init_looper_if_active(args, loop_args):
@@ -688,11 +675,17 @@ def create_output_directory_for_the_batch(args):
     print(f"Saving animation frames to:\n{args.outdir}")
 
 
-def load_depth_model_for_3d(args, anim_args):
-    is_depth_warped_3d = anim_args.animation_mode == '3D' and anim_args.use_depth_warping
-    is_composite_with_depth = anim_args.hybrid_composite and anim_args.hybrid_comp_mask_type in ['Depth', 'Video Depth']
-    is_depth_used = is_depth_warped_3d or anim_args.save_depth_maps or is_composite_with_depth
-    return is_depth_used and not args.motion_preview_mode
+def save_settings_txt(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root):
+    save_settings_from_animation_run(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
+
+
+def maybe_resume_from_timestring(anim_args, current_value):
+    return anim_args.resume_timestring if anim_args.resume_from_timestring else current_value
+
+
+def select_prompts(parseq_adapter, anim_args, animation_keys, root):
+    return animation_keys.deform_keys.prompts if parseq_adapter.manages_prompts() \
+        else expand_prompts_out_to_per_frame(anim_args, root)
 
 
 def expand_prompts_out_to_per_frame(anim_args, root):
@@ -729,8 +722,8 @@ def update_tracker(root, frame_idx, anim_args):
     JobStatusTracker().update_phase(root.job_id, phase="GENERATING", progress=frame_idx / anim_args.max_frames)
 
 
-def cleanup(predict_depths, keep_in_vram, depth_model, is_load_raft, raft_model):
-    if predict_depths and not keep_in_vram:
+def cleanup(is_predicting_depths, keep_in_vram, depth_model, is_load_raft, raft_model):
+    if is_predicting_depths and not keep_in_vram:
         depth_model.delete_model()  # handles adabins too
     if is_load_raft:
         raft_model.delete_model()
