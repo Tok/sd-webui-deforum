@@ -46,6 +46,7 @@ from .masks import do_overlay_mask
 from .noise import add_noise
 from .parseq_adapter import ParseqAdapter
 from .prompt import prepare_prompt
+from .render_data import AnimationKeys, AnimationMode, Schedule, Srt
 from .resume import get_resume_vars
 from .save_images import save_image
 from .seed import next_seed
@@ -53,20 +54,16 @@ from .settings import save_settings_from_animation_run
 from .subtitle_handler import write_frame_subtitle, format_animation_params
 from .video_audio_utilities import get_frame_name, get_next_frame, render_preview
 
-from .render_data import AnimationKeys, AnimationMode, Schedule, Srt
-
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
     parseq_adapter = initialize_parseq_adapter(parseq_args, anim_args, video_args, controlnet_args, loop_args)
-
-    srt = Srt.create_if_active(opts.data, args.outdir, root.timestring, video_args.fps)
-    anim_mode, args, anim_args, inputfiles = apply_animation_mode_settings(anim_args, args, loop_args, root)
-    handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
-
-    # TODO eventually try to init animation keys right after parseq adapter
     animation_keys = AnimationKeys.from_args(anim_args, loop_args, parseq_adapter, args.seed)
+    srt = Srt.create_if_active(opts.data, args.outdir, root.timestring, video_args.fps)
+    anim_mode = AnimationMode.from_args(anim_args, args, root)  # possible side effects on anim_args and args
 
-    create_output_folder_for_the_batch(args)
+    init_looper_if_active(args, loop_args)
+    handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
+    create_output_directory_for_the_batch(args)
 
     # save settings.txt file for the current run
     save_settings_from_animation_run(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
@@ -274,11 +271,13 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
                     depth = depth_model.predict(turbo_next_image, anim_args.midas_weight, root.half_precision)
 
                 if advance_prev:
-                    turbo_prev_image, _ = anim_frame_warp(turbo_prev_image, args, anim_args, animation_keys.deform_keys, tween_frame_idx,
+                    turbo_prev_image, _ = anim_frame_warp(turbo_prev_image, args, anim_args,
+                                                          animation_keys.deform_keys, tween_frame_idx,
                                                           depth_model, depth=depth, device=root.device,
                                                           half_precision=root.half_precision)
                 if advance_next:
-                    turbo_next_image, _ = anim_frame_warp(turbo_next_image, args, anim_args, animation_keys.deform_keys, tween_frame_idx,
+                    turbo_next_image, _ = anim_frame_warp(turbo_next_image, args, anim_args,
+                                                          animation_keys.deform_keys, tween_frame_idx,
                                                           depth_model, depth=depth, device=root.device,
                                                           half_precision=root.half_precision)
 
@@ -287,7 +286,8 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
                     if anim_args.hybrid_motion in ['Affine', 'Perspective']:
                         if anim_args.hybrid_motion_use_prev_img:
                             matrix = get_matrix_for_hybrid_motion_prev(tween_frame_idx - 1, (args.W, args.H),
-                                                                       inputfiles, prev_img, anim_args.hybrid_motion)
+                                                                       anim_mode.hybrid_input_files, prev_img,
+                                                                       anim_args.hybrid_motion)
                             if advance_prev:
                                 turbo_prev_image = image_transform_ransac(turbo_prev_image, matrix,
                                                                           anim_args.hybrid_motion)
@@ -295,7 +295,8 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
                                 turbo_next_image = image_transform_ransac(turbo_next_image, matrix,
                                                                           anim_args.hybrid_motion)
                         else:
-                            matrix = get_matrix_for_hybrid_motion(tween_frame_idx - 1, (args.W, args.H), inputfiles,
+                            matrix = get_matrix_for_hybrid_motion(tween_frame_idx - 1, (args.W, args.H),
+                                                                  anim_mode.hybrid_input_files,
                                                                   anim_args.hybrid_motion)
                             if advance_prev:
                                 turbo_prev_image = image_transform_ransac(turbo_prev_image, matrix,
@@ -305,7 +306,8 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
                                                                           anim_args.hybrid_motion)
                     if anim_args.hybrid_motion in ['Optical Flow']:
                         if anim_args.hybrid_motion_use_prev_img:
-                            flow = get_flow_for_hybrid_motion_prev(tween_frame_idx - 1, (args.W, args.H), inputfiles,
+                            flow = get_flow_for_hybrid_motion_prev(tween_frame_idx - 1, (args.W, args.H),
+                                                                   anim_mode.hybrid_input_files,
                                                                    anim_mode.hybrid_frame_path, anim_mode.prev_flow,
                                                                    prev_img,
                                                                    anim_args.hybrid_flow_method, raft_model,
@@ -320,7 +322,8 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
                                                                                 hybrid_comp_schedules['flow_factor'])
                             anim_mode.prev_flow = flow
                         else:
-                            flow = get_flow_for_hybrid_motion(tween_frame_idx - 1, (args.W, args.H), inputfiles,
+                            flow = get_flow_for_hybrid_motion(tween_frame_idx - 1, (args.W, args.H),
+                                                              anim_mode.hybrid_input_files,
                                                               anim_mode.hybrid_frame_path, anim_mode.prev_flow,
                                                               anim_args.hybrid_flow_method, raft_model,
                                                               anim_args.hybrid_flow_consistency,
@@ -403,22 +406,26 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
             # hybrid video motion - warps prev_img to match motion, usually to prepare for compositing
             if anim_args.hybrid_motion in ['Affine', 'Perspective']:
                 if anim_args.hybrid_motion_use_prev_img:
-                    matrix = get_matrix_for_hybrid_motion_prev(frame_idx - 1, (args.W, args.H), inputfiles, prev_img,
+                    matrix = get_matrix_for_hybrid_motion_prev(frame_idx - 1, (args.W, args.H),
+                                                               anim_mode.hybrid_input_files, prev_img,
                                                                anim_args.hybrid_motion)
                 else:
-                    matrix = get_matrix_for_hybrid_motion(frame_idx - 1, (args.W, args.H), inputfiles,
+                    matrix = get_matrix_for_hybrid_motion(frame_idx - 1, (args.W, args.H),
+                                                          anim_mode.hybrid_input_files,
                                                           anim_args.hybrid_motion)
                 prev_img = image_transform_ransac(prev_img, matrix, anim_args.hybrid_motion)
             if anim_args.hybrid_motion in ['Optical Flow']:
                 if anim_args.hybrid_motion_use_prev_img:
-                    flow = get_flow_for_hybrid_motion_prev(frame_idx - 1, (args.W, args.H), inputfiles,
+                    flow = get_flow_for_hybrid_motion_prev(frame_idx - 1, (args.W, args.H),
+                                                           anim_mode.hybrid_input_files,
                                                            anim_mode.hybrid_frame_path, anim_mode.prev_flow, prev_img,
                                                            anim_args.hybrid_flow_method, raft_model,
                                                            anim_args.hybrid_flow_consistency,
                                                            anim_args.hybrid_consistency_blur,
                                                            anim_args.hybrid_comp_save_extra_frames)
                 else:
-                    flow = get_flow_for_hybrid_motion(frame_idx - 1, (args.W, args.H), inputfiles,
+                    flow = get_flow_for_hybrid_motion(frame_idx - 1, (args.W, args.H),
+                                                      anim_mode.hybrid_input_files,
                                                       anim_mode.hybrid_frame_path,
                                                       anim_mode.prev_flow, anim_args.hybrid_flow_method, raft_model,
                                                       anim_args.hybrid_flow_consistency,
@@ -656,33 +663,19 @@ def setup_opts(opts, schedule):
     set_if_not_none(opts.data, "eta_ancestral", schedule.eta_ancestral)
 
 
-def apply_animation_mode_settings(anim_args, args, loop_args, root):
-    hybrid_frame_path = None
-    prev_flow = None
-    inputfiles = None
-    if anim_args.animation_mode in ['2D', '3D']:
-        # handle hybrid video generation
-        if anim_args.hybrid_composite != 'None' or anim_args.hybrid_motion in ['Affine', 'Perspective', 'Optical Flow']:
-            args, anim_args, inputfiles = hybrid_generation(args, anim_args, root)
-            # path required by hybrid functions, even if hybrid_comp_save_extra_frames is False
-            hybrid_frame_path = os.path.join(args.outdir, 'hybridframes')
-        # initialize prev_flow
-        if anim_args.hybrid_motion == 'Optical Flow':
-            prev_flow = None  #TODO prev_flow is always set to None in here, so probably remove this logic
-
-        if loop_args.use_looper:
-            print("Using Guided Images mode: seed_behavior will be set to 'schedule' and 'strength_0_no_init' to False")
-            if args.strength == 0:
-                raise RuntimeError("Strength needs to be greater than 0 in Init tab")
-            args.strength_0_no_init = False
-            args.seed_behavior = "schedule"
-            if not isJson(loop_args.init_images):
-                raise RuntimeError("The images set for use with keyframe-guidance are not in a proper JSON format")
-        return AnimationMode(hybrid_frame_path, prev_flow), args, anim_args, inputfiles
-
-
 def initialize_parseq_adapter(parseq_args, anim_args, video_args, controlnet_args, loop_args):
     return ParseqAdapter(parseq_args, anim_args, video_args, controlnet_args, loop_args)
+
+
+def init_looper_if_active(args, loop_args):
+    if loop_args.use_looper:
+        print("Using Guided Images mode: seed_behavior will be set to 'schedule' and 'strength_0_no_init' to False")
+    if args.strength == 0:
+        raise RuntimeError("Strength needs to be greater than 0 in Init tab")
+    args.strength_0_no_init = False
+    args.seed_behavior = "schedule"
+    if not isJson(loop_args.init_images):
+        raise RuntimeError("The images set for use with keyframe-guidance are not in a proper JSON format")
 
 
 def handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args):
@@ -690,7 +683,7 @@ def handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_
         unpack_controlnet_vids(args, anim_args, controlnet_args)
 
 
-def create_output_folder_for_the_batch(args):
+def create_output_directory_for_the_batch(args):
     os.makedirs(args.outdir, exist_ok=True)
     print(f"Saving animation frames to:\n{args.outdir}")
 
