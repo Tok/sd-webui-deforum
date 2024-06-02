@@ -33,9 +33,9 @@ class RenderInitArgs:
 
 @dataclasses.dataclass
 class RenderInit:
-    """The purpose of this class is to group and control all data used in a single iteration of render_animation"""
+    """The purpose of this class is to group and control all data used in render_animation"""
     seed: int
-    step_args: RenderInitArgs
+    args: RenderInitArgs
     parseq_adapter: Any
     srt: Any
     animation_keys: AnimationKeys
@@ -45,6 +45,13 @@ class RenderInit:
 
     def __new__(cls, *args, **kwargs):
         raise TypeError("Use RenderInit.create() to create new instances.")
+
+    def is_3d(self):
+        return self.args.anim_args.animation_mode == '3D'
+
+    def is_3d_with_med_or_low_vram(self):
+        return self.is_3d() and MemoryUtils.is_low_or_med_vram()
+
 
     @classmethod
     def create_parseq_adapter(cls, args):
@@ -130,20 +137,22 @@ class RenderInit:
         RenderInit.maybe_resume_from_timestring(anim_args, root)
 
     @classmethod
-    def create(cls, args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root) -> 'RenderInit':
-        step_args = RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
-        parseq_adapter = RenderInit.create_parseq_adapter(step_args)
-        srt = Srt.create_if_active(opts.data, args.outdir, root.timestring, video_args.fps)
-        animation_keys = AnimationKeys.from_args(step_args, parseq_adapter, args.seed)
-        animation_mode = AnimationMode.from_args(step_args)
+    def create(cls, args_argument, parseq_args, anim_args, video_args, controlnet_args,
+               loop_args, opts, root) -> 'RenderInit':
+        args = RenderInitArgs(args_argument, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
+        parseq_adapter = RenderInit.create_parseq_adapter(args)
+        srt = Srt.create_if_active(opts.data, args_argument.outdir, root.timestring, video_args.fps)
+        animation_keys = AnimationKeys.from_args(args, parseq_adapter, args_argument.seed)
+        animation_mode = AnimationMode.from_args(args)
         prompt_series = RenderInit.select_prompts(parseq_adapter, anim_args, animation_keys, root)
-        depth_model = RenderInit.create_depth_model_and_enable_depth_map_saving_if_active(animation_mode, root, anim_args, args)
+        depth_model = RenderInit.create_depth_model_and_enable_depth_map_saving_if_active(
+            animation_mode, root, anim_args, args_argument)
         instance = object.__new__(cls)  # creating the instance without raising the type error defined in __new__.
-        instance.__init__(args.seed, step_args, parseq_adapter, srt,
+        instance.__init__(args_argument.seed, args, parseq_adapter, srt,
                           animation_keys, animation_mode, prompt_series, depth_model)
         # Ideally, a call to render_animation in render.py shouldn't cause changes in any of the args passed there.
         # It may be preferable to work on temporary copies within tight scope.
         # TODO avoid or isolate more side effects
-        RenderInit.do_void_inits(args, loop_args, controlnet_args, anim_args, parseq_args, video_args, root)
+        RenderInit.do_void_inits(args_argument, loop_args, controlnet_args, anim_args, parseq_args, video_args, root)
 
         return instance
