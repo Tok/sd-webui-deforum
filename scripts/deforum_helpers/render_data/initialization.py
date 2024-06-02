@@ -7,7 +7,8 @@ import pandas as pd
 from typing import Any
 from modules.shared import cmd_opts  # keep readonly
 
-from . import AnimationKeys, AnimationMode, Srt
+from .anim import AnimationKeys, AnimationMode
+from .subtitle import Srt
 from ..deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
 from ..depth import DepthModel
 from ..generate import isJson
@@ -132,7 +133,7 @@ class RenderInit:
     def do_void_inits(cls, args, loop_args, controlnet_args, anim_args, parseq_args, video_args, root):
         # TODO all of those calls may cause a change in on of the passed args.
         # Ideally it may be refactored so each one returns a new instance of the potentially changed args that are then
-        # attached as a property to this Step to be used for one render iteration.
+        # attached as a property to this class to be used for one single render only.
         RenderInit.init_looper_if_active(args, loop_args)
         RenderInit.handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
         RenderInit.create_output_directory_for_the_batch(args)

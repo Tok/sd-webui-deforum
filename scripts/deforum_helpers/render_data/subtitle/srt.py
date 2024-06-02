@@ -2,7 +2,7 @@ import dataclasses
 import os
 
 from decimal import Decimal
-from ..subtitle_handler import init_srt_file
+from ...subtitle_handler import init_srt_file
 
 
 @dataclasses.dataclass

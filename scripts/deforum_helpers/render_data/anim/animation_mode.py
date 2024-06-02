@@ -2,8 +2,8 @@ import dataclasses
 import os
 
 from typing import Any
-from ..hybrid_video import hybrid_generation
-from ..RAFT import RAFT
+from ...hybrid_video import hybrid_generation
+from ...RAFT import RAFT
 
 
 @dataclasses.dataclass
