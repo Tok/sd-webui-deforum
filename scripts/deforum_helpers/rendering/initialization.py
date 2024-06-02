@@ -54,6 +54,15 @@ class RenderInit:
     def is_3d_with_med_or_low_vram(self):
         return self.is_3d() and MemoryUtils.is_low_or_med_vram()
 
+    def width(self) -> int:
+        return self.args.args.W
+
+    def height(self) -> int:
+        return self.args.args.H
+
+    def dimensions(self) -> tuple[int, int]:
+        # TODO should ideally only be called once each render
+        return self.width(), self.height()
 
     @classmethod
     def create_parseq_adapter(cls, args):
