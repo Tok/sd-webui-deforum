@@ -17,6 +17,8 @@ from ..settings import save_settings_from_animation_run
 
 @dataclasses.dataclass(init=True, frozen=True, repr=False, eq=False)
 class RenderInitArgs:
+    # TODO eventually this should only keep the information required to run render_animation once
+    #  for now it's just a direct reference or a copy of the actual args provided to the render_animation call.
     args: Any = None
     parseq_args: Any = None
     anim_args: Any = None

@@ -6,7 +6,8 @@ from ....hybrid_video import hybrid_generation
 from ....RAFT import RAFT
 
 
-@dataclasses.dataclass(init=True, frozen=True, repr=False, eq=False)
+# TODO FIXME find a way to assign prev_flow right away, then set frozen=true again, otherwise move prev_flow elsewhere.
+@dataclasses.dataclass(init=True, frozen=False, repr=False, eq=False)
 class AnimationMode:
     has_video_input: bool = False
     hybrid_input_files: Any = None
@@ -27,7 +28,6 @@ class AnimationMode:
             self.depth_model.delete_model()  # handles adabins too
         if self.is_raft_active():
             self.raft_model.delete_model()
-
 
     @staticmethod
     def _has_video_input(anim_args) -> bool:
@@ -52,7 +52,6 @@ class AnimationMode:
         is_composite_with_depth = anim_args.hybrid_composite and anim_args.hybrid_comp_mask_type in ['Depth', 'Video Depth']
         is_depth_used = is_depth_warped_3d or anim_args.save_depth_maps or is_composite_with_depth
         return is_depth_used and not args.motion_preview_mode
-
 
     @staticmethod
     def _load_raft_if_active(anim_args, args):
