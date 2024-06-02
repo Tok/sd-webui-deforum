@@ -29,7 +29,6 @@ from deforum_api import JobStatusTracker
 from modules import lowvram, devices, sd_hijack
 from modules.shared import opts, cmd_opts, state, sd_model
 
-from .RAFT import RAFT
 from .animation import anim_frame_warp
 from .colors import maintain_colors
 from .composable_masks import compose_mask_with_check
@@ -37,8 +36,9 @@ from .deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
 from .depth import DepthModel
 from .generate import generate, isJson
 from .hybrid_video import (hybrid_composite, get_matrix_for_hybrid_motion, get_matrix_for_hybrid_motion_prev,
-    get_flow_for_hybrid_motion, get_flow_for_hybrid_motion_prev, image_transform_ransac,
-    image_transform_optical_flow, get_flow_from_images, abs_flow_to_rel_flow, rel_flow_to_abs_flow)
+                           get_flow_for_hybrid_motion, get_flow_for_hybrid_motion_prev, image_transform_ransac,
+                           image_transform_optical_flow, get_flow_from_images, abs_flow_to_rel_flow,
+                           rel_flow_to_abs_flow)
 from .image_sharpening import unsharp_mask
 from .load_images import get_mask, load_img, load_image, get_mask_from_file
 from .masks import do_overlay_mask
@@ -58,32 +58,14 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
     parseq_adapter = initialize_parseq_adapter(parseq_args, anim_args, video_args, controlnet_args, loop_args)
     animation_keys = AnimationKeys.from_args(anim_args, loop_args, parseq_adapter, args.seed)
     srt = Srt.create_if_active(opts.data, args.outdir, root.timestring, video_args.fps)
-    anim_mode = AnimationMode.from_args(anim_args, args, root)  # possible side effects on anim_args and args
+    anim_mode = AnimationMode.from_args(anim_args, args, opts, root)  # possible side effects on anim_args and args
     init_looper_if_active(args, loop_args)
     handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
     create_output_directory_for_the_batch(args)
     save_settings_txt(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
     root.timestring = maybe_resume_from_timestring(anim_args, root.timestring)
     prompt_series = select_prompts(parseq_adapter, anim_args, animation_keys, root)
-
-    # TODO bundle..
-    is_keep_in_vram = None
-
-    if anim_mode.is_predicting_depths:
-        is_keep_in_vram = opts.data.get("deforum_keep_3d_models_in_vram")
-        device = ('cpu' if cmd_opts.lowvram or cmd_opts.medvram else root.device)
-        depth_model = DepthModel(root.models_path, device, root.half_precision, keep_in_vram=is_keep_in_vram,
-                                 depth_algorithm=anim_args.depth_algorithm, Width=args.W, Height=args.H,
-                                 midas_weight=anim_args.midas_weight)
-
-        # depth-based hybrid composite mask requires saved depth maps
-        if is_composite_with_depth_mask(anim_args):
-            anim_args.save_depth_maps = True
-    else:
-        depth_model = None
-        anim_args.save_depth_maps = False
-
-    is_raft_active, raft_model = load_raft(args, anim_args)
+    depth_model = create_depth_model_and_enable_depth_map_saving_if_active(anim_mode, root, anim_args, args)
 
     # state for interpolating between diffusion steps
     turbo_steps = 1 if anim_mode.has_video_input else int(anim_args.diffusion_cadence)
@@ -212,7 +194,8 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
 
         if turbo_steps == 1 and opts.data.get("deforum_save_gen_info_as_srt"):
             params_to_print = opts.data.get("deforum_save_gen_info_as_srt_params", ['Seed'])
-            params_string = format_animation_params(animation_keys.deform_keys, prompt_series, frame_idx, params_to_print)
+            params_string = format_animation_params(animation_keys.deform_keys, prompt_series, frame_idx,
+                                                    params_to_print)
             write_frame_subtitle(srt.filename, frame_idx, srt.frame_duration,
                                  f"F#: {frame_idx}; Cadence: false; Seed: {args.seed}; {params_string}")
             params_string = None
@@ -240,7 +223,8 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
 
                 if opts.data.get("deforum_save_gen_info_as_srt"):
                     params_to_print = opts.data.get("deforum_save_gen_info_as_srt_params", ['Seed'])
-                    params_string = format_animation_params(animation_keys.deform_keys, prompt_series, tween_frame_idx, params_to_print)
+                    params_string = format_animation_params(animation_keys.deform_keys, prompt_series, tween_frame_idx,
+                                                            params_to_print)
                     write_frame_subtitle(srt.filename, tween_frame_idx, srt.frame_duration,
                                          f"F#: {tween_frame_idx}; Cadence: {tween < 1.0}; Seed: {args.seed}; {params_string}")
                     params_string = None
@@ -377,7 +361,8 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
         # after 1st frame, prev_img exists
         if prev_img is not None:
             # apply transforms to previous frame
-            prev_img, depth = anim_frame_warp(prev_img, args, anim_args, animation_keys.deform_keys, frame_idx, depth_model, depth=None,
+            prev_img, depth = anim_frame_warp(prev_img, args, anim_args, animation_keys.deform_keys, frame_idx,
+                                              depth_model, depth=None,
                                               device=root.device, half_precision=root.half_precision)
 
             # do hybrid compositing before motion
@@ -504,7 +489,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
         setup_opts(opts, schedule)
 
         if anim_args.animation_mode == '3D' and (cmd_opts.lowvram or cmd_opts.medvram):
-            if is_predicting_depths: depth_model.to('cpu')
+            if anim_mode.is_predicting_depths: depth_model.to('cpu')
             devices.torch_gc()
             lowvram.setup_for_low_vram(sd_model, cmd_opts.medvram)
             sd_hijack.model_hijack.hijack(sd_model)
@@ -518,7 +503,8 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
             print(
                 f"Optical flow redo is diffusing and warping using {optical_flow_redo_generation} and seed {args.seed} optical flow before generation.")
 
-            disposable_image = generate(args, animation_keys.deform_keys, anim_args, loop_args, controlnet_args, root, parseq_adapter,
+            disposable_image = generate(args, animation_keys.deform_keys, anim_args, loop_args, controlnet_args, root,
+                                        parseq_adapter,
                                         frame_idx, sampler_name=schedule.sampler_name)
             disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
             disposable_flow = get_flow_from_images(prev_img, disposable_image, optical_flow_redo_generation, raft_model)
@@ -535,7 +521,8 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
             for n in range(0, int(anim_args.diffusion_redo)):
                 print(f"Redo generation {n + 1} of {int(anim_args.diffusion_redo)} before final generation")
                 args.seed = random.randint(0, 2 ** 32 - 1)
-                disposable_image = generate(args, animation_keys.deform_keys, anim_args, loop_args, controlnet_args, root, parseq_adapter,
+                disposable_image = generate(args, animation_keys.deform_keys, anim_args, loop_args, controlnet_args,
+                                            root, parseq_adapter,
                                             frame_idx, sampler_name=schedule.sampler_name)
                 disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
                 # color match on last one only
@@ -547,7 +534,8 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
             gc.collect()
 
         # generation
-        image = generate(args, animation_keys.deform_keys, anim_args, loop_args, controlnet_args, root, parseq_adapter, frame_idx,
+        image = generate(args, animation_keys.deform_keys, anim_args, loop_args, controlnet_args, root, parseq_adapter,
+                         frame_idx,
                          sampler_name=schedule.sampler_name)
 
         if image is None:
@@ -612,7 +600,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
         last_preview_frame = progress_and_make_preview(state, image, args, anim_args, video_args,
                                                        root, frame_idx, last_preview_frame)
         update_tracker(root, frame_idx, anim_args)
-        cleanup(anim_mode.is_predicting_depths, is_keep_in_vram, depth_model, is_raft_active, raft_model)
+        anim_mode.cleanup()
 
 
 def should_initialize_color_match(anim_args, hybrid_available, color_match_sample):
@@ -702,14 +690,18 @@ def is_composite_with_depth_mask(anim_args):
     return anim_args.hybrid_composite != 'None' and anim_args.hybrid_comp_mask_type == 'Depth'
 
 
-def load_raft(args, anim_args):
-    is_cadenced_raft = anim_args.optical_flow_cadence == "RAFT" and int(anim_args.diffusion_cadence) > 1
-    is_optical_flow_raft = anim_args.hybrid_motion == "Optical Flow" and anim_args.hybrid_flow_method == "RAFT"
-    is_raft_redo = anim_args.optical_flow_redo_generation == "RAFT"
-    is_load_raft = (is_cadenced_raft or is_optical_flow_raft or is_raft_redo) and not args.motion_preview_mode
-    if is_load_raft:
-        print("Loading RAFT model...")
-    return is_load_raft, RAFT() if is_load_raft else None
+def create_depth_model_and_enable_depth_map_saving_if_active(anim_mode, root, anim_args, args):
+    # depth-based hybrid composite mask requires saved depth maps
+    anim_args.save_depth_maps = anim_mode.is_predicting_depths and is_composite_with_depth_mask(anim_args)
+    if anim_mode.is_predicting_depths:
+        depth_device = ('cpu' if cmd_opts.lowvram or cmd_opts.medvram else root.device)
+        return DepthModel(root.models_path, depth_device, root.half_precision,
+                          keep_in_vram=anim_mode.is_keep_in_vram,
+                          depth_algorithm=anim_args.depth_algorithm,
+                          Width=args.W, Height=args.H,
+                          midas_weight=anim_args.midas_weight)
+    else:
+        return None
 
 
 def progress_and_make_preview(state, image, args, anim_args, video_args, root, frame_idx, last_preview_frame):
@@ -721,9 +713,3 @@ def progress_and_make_preview(state, image, args, anim_args, video_args, root, f
 def update_tracker(root, frame_idx, anim_args):
     JobStatusTracker().update_phase(root.job_id, phase="GENERATING", progress=frame_idx / anim_args.max_frames)
 
-
-def cleanup(is_predicting_depths, keep_in_vram, depth_model, is_load_raft, raft_model):
-    if is_predicting_depths and not keep_in_vram:
-        depth_model.delete_model()  # handles adabins too
-    if is_load_raft:
-        raft_model.delete_model()
