@@ -3,7 +3,7 @@ import dataclasses
 from typing import Optional, Any
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(init=True, frozen=True, repr=False, eq=False)
 class Schedule:
     steps: int
     sampler_name: str

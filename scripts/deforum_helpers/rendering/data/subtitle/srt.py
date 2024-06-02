@@ -5,7 +5,7 @@ from decimal import Decimal
 from ....subtitle_handler import init_srt_file
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(init=True, frozen=True, repr=False, eq=False)
 class Srt:
     filename: str
     frame_duration: Decimal

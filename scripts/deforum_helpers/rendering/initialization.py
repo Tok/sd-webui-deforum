@@ -15,7 +15,7 @@ from ..parseq_adapter import ParseqAdapter
 from ..settings import save_settings_from_animation_run
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(init=True, frozen=True, repr=False, eq=False)
 class RenderInitArgs:
     args: Any = None
     parseq_args: Any = None
@@ -31,7 +31,7 @@ class RenderInitArgs:
         return RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(init=True, frozen=True, repr=False, eq=False)
 class RenderInit:
     """The purpose of this class is to group and control all data used in render_animation"""
     seed: int

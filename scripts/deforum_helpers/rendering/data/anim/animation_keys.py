@@ -3,7 +3,7 @@ import dataclasses
 from ....animation_key_frames import DeformAnimKeys, LooperAnimKeys
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(init=True, frozen=True, repr=False, eq=False)
 class AnimationKeys:
     deform_keys: DeformAnimKeys
     looper_keys: LooperAnimKeys
