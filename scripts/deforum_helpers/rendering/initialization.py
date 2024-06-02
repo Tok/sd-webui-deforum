@@ -5,10 +5,9 @@ import os
 import pandas as pd
 
 from typing import Any
-from modules.shared import cmd_opts  # keep readonly
-
-from .anim import AnimationKeys, AnimationMode
-from .subtitle import Srt
+from .data.anim import AnimationKeys, AnimationMode
+from .data.subtitle import Srt
+from .util import MemoryUtils
 from ..deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
 from ..depth import DepthModel
 from ..generate import isJson
@@ -72,19 +71,9 @@ class RenderInit:
         return animation_keys.deform_keys.prompts if parseq_adapter.manages_prompts() \
             else RenderInit.expand_prompts_out_to_per_frame(anim_args, root)
 
-
     @classmethod
     def is_composite_with_depth_mask(cls, anim_args):
         return anim_args.hybrid_composite != 'None' and anim_args.hybrid_comp_mask_type == 'Depth'
-
-    @classmethod
-    def is_low_or_med_vram(cls):
-        # TODO move methods like this to a new static helper class or something
-        return cmd_opts.lowvram or cmd_opts.medvram  # cmd_opts are imported from elsewhere. keep readonly
-
-    @classmethod
-    def select_depth_device(cls, root):
-        return 'cpu' if RenderInit.is_low_or_med_vram() else root.device
 
     @classmethod
     def create_depth_model_and_enable_depth_map_saving_if_active(cls, anim_mode, root, anim_args, args):
@@ -93,7 +82,7 @@ class RenderInit:
         anim_args.save_depth_maps = (anim_mode.is_predicting_depths
                                      and RenderInit.is_composite_with_depth_mask(anim_args))
         return DepthModel(root.models_path,
-                          RenderInit.select_depth_device(root),
+                          MemoryUtils.select_depth_device(root),
                           root.half_precision,
                           keep_in_vram=anim_mode.is_keep_in_vram,
                           depth_algorithm=anim_args.depth_algorithm,

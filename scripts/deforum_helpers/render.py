@@ -11,7 +11,6 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-import dataclasses
 # Contact the authors: https://deforum.github.io/
 
 import gc
@@ -40,12 +39,16 @@ from .load_images import get_mask, load_img, load_image, get_mask_from_file
 from .masks import do_overlay_mask
 from .noise import add_noise
 from .prompt import prepare_prompt
-from .render_data import Schedule, RenderInit
 from .resume import get_resume_vars
 from .save_images import save_image
 from .seed import next_seed
 from .subtitle_handler import write_frame_subtitle, format_animation_params
 from .video_audio_utilities import get_frame_name, get_next_frame, render_preview
+
+# TODO reorg when done..
+from .rendering.initialization import RenderInit
+from .rendering.data.schedule import Schedule
+from .rendering.util.memory_utils import MemoryUtils
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
@@ -165,7 +168,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
 
         depth = None
 
-        if anim_args.animation_mode == '3D' and (cmd_opts.lowvram or cmd_opts.medvram):
+        if anim_args.animation_mode == '3D' and MemoryUtils.is_low_or_med_vram():
             # Unload the main checkpoint and load the depth model
             lowvram.send_everything_to_cpu()
             sd_hijack.model_hijack.undo_hijack(sd_model)
@@ -481,7 +484,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
         init.animation_keys.update(frame_idx)
         setup_opts(opts, schedule)
 
-        if anim_args.animation_mode == '3D' and (cmd_opts.lowvram or cmd_opts.medvram):
+        if anim_args.animation_mode == '3D' and MemoryUtils.is_low_or_med_vram():
             if init.animation_mode.is_predicting_depths: init.depth_model.to('cpu')
             devices.torch_gc()
             lowvram.setup_for_low_vram(sd_model, cmd_opts.medvram)
@@ -578,14 +581,14 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
 
             if anim_args.save_depth_maps:
                 # TODO move all depth related stuff to new class. (also see RenderInit)
-                if cmd_opts.lowvram or cmd_opts.medvram:
+                if MemoryUtils.is_low_or_med_vram():
                     lowvram.send_everything_to_cpu()
                     sd_hijack.model_hijack.undo_hijack(sd_model)
                     devices.torch_gc()
                     init.depth_model.to(root.device)
                 depth = init.depth_model.predict(opencv_image, anim_args.midas_weight, root.half_precision)
                 init.depth_model.save(os.path.join(args.outdir, f"{root.timestring}_depth_{frame_idx:09}.png"), depth)
-                if cmd_opts.lowvram or cmd_opts.medvram:
+                if MemoryUtils.is_low_or_med_vram():
                     init.depth_model.to('cpu')
                     devices.torch_gc()
                     lowvram.setup_for_low_vram(sd_model, cmd_opts.medvram)
