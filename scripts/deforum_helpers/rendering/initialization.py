@@ -110,10 +110,22 @@ class RenderInit:
     def cadence(self) -> int:
         return int(self.args.anim_args.diffusion_cadence)
 
+    def _has_init_image(self) -> bool:
+        return self.args.args.init_image is not None and self.args.args.init_image != ''
+
+    def _has_init_box(self) -> bool:
+        return self.args.args.init_image_box is not None
+
+    def _has_init_image_or_box(self) -> bool:
+        return self._has_init_image() or self._has_init_box()
+
+    def is_using_init_image_or_box(self) -> bool:
+        return self.args.args.use_init and self._has_init_image_or_box()
+
     @classmethod
-    def create_output_directory_for_the_batch(self, dir):
-        os.makedirs(dir, exist_ok=True)
-        print(f"Saving animation frames to:\n{dir}")
+    def create_output_directory_for_the_batch(cls, directory):
+        os.makedirs(directory, exist_ok=True)
+        print(f"Saving animation frames to:\n{directory}")
 
     @classmethod
     def create_parseq_adapter(cls, args):

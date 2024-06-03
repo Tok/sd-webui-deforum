@@ -46,6 +46,7 @@ from .rendering.util.call_utils import (call_get_flow_from_images, call_generate
                                         call_get_matrix_for_hybrid_motion, call_get_matrix_for_hybrid_motion_prev,
                                         call_get_flow_for_hybrid_motion, call_get_flow_for_hybrid_motion_prev)
 from .rendering.util.memory_utils import MemoryUtils
+from .rendering.util.utils import put_all
 from .resume import get_resume_vars
 from .save_images import save_image
 from .seed import next_seed
@@ -99,35 +100,19 @@ def run_render_animation(init):
     mask_vals = {}
     noise_mask_vals = {}
 
-    mask_vals['everywhere'] = Image.new('1', init.dimensions(), 1)
-    noise_mask_vals['everywhere'] = Image.new('1', init.dimensions(), 1)
+    put_all([mask_vals, noise_mask_vals], 'everywhere',
+            lambda: Image.new('1', init.dimensions(), 1))
 
     mask_image = None
 
-    if (init.args.args.use_init
-            and ((init.args.args.init_image != None
-                  and init.args.args.init_image != '')
-                 or init.args.args.init_image_box != None)):
+    if init.is_using_init_image_or_box():
         _, mask_image = load_img(init.args.args.init_image,
                                  init.args.args.init_image_box,
                                  shape=init.dimensions(),
                                  use_alpha_as_mask=init.args.args.use_alpha_as_mask)
-        mask_vals['video_mask'] = mask_image
-        noise_mask_vals['video_mask'] = mask_image
+        put_all([mask_vals, noise_mask_vals], 'video_mask', mask_image)
 
-    # Grab the first frame masks since they wont be provided until next frame
-    # Video mask overrides the init image mask, also, won't be searching for init_mask if use_mask_video is set
-    # Made to solve https://github.com/deforum-art/deforum-for-automatic1111-webui/issues/386
-    if init.args.anim_args.use_mask_video:
-        temp_mask = call_get_mask_from_file(init, frame_idx, True)
-        init.args.args.mask_file = temp_mask
-        init.args.args.mask_file = temp_mask
-        init.args.root.noise_mask = temp_mask
-        mask_vals['video_mask'] = temp_mask
-        noise_mask_vals['video_mask'] = temp_mask
-    elif mask_image is None and init.is_use_mask:
-        mask_vals['video_mask'] = get_mask(init.args.args)
-        noise_mask_vals['video_mask'] = get_mask(init.args.args)  # TODO?: add a different default noisc mask
+    assign_masks(init, frame_idx, mask_image, [mask_vals, noise_mask_vals])
 
     # get color match for 'Image' color coherence only once, before loop
     if init.args.anim_args.color_coherence == 'Image':
@@ -579,6 +564,20 @@ def run_render_animation(init):
         last_preview_frame = progress_and_make_preview(init, image, frame_idx, state, last_preview_frame)
         update_tracker(init.args.root, frame_idx, init.args.anim_args)
         init.animation_mode.cleanup()
+
+
+def assign_masks(init, i, is_mask_image, dicts):
+    # Grab the first frame masks since they wont be provided until next frame
+    # Video mask overrides the init image mask, also, won't be searching for init_mask if use_mask_video is set
+    # Made to solve https://github.com/deforum-art/deforum-for-automatic1111-webui/issues/386
+    key = 'video_mask'
+    if init.args.anim_args.use_mask_video:
+        mask = call_get_mask_from_file(init, i, True)
+        init.args.args.mask_file = mask
+        init.args.root.noise_mask = mask
+        put_all(dicts, key, mask)
+    elif is_mask_image is None and init.is_use_mask:
+        put_all(dicts, key, get_mask(init.args.args))  # TODO?: add a different default noisc mask
 
 
 def setup_opts(init, schedule):
