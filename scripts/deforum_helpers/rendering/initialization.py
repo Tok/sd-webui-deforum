@@ -44,6 +44,8 @@ class RenderInit:
     animation_mode: AnimationMode
     prompt_series: Any
     depth_model: Any
+    output_directory: str
+    is_use_mask: bool
 
     def __new__(cls, *args, **kwargs):
         raise TypeError("Use RenderInit.create() to create new instances.")
@@ -62,7 +64,56 @@ class RenderInit:
 
     def dimensions(self) -> tuple[int, int]:
         # TODO should ideally only be called once each render
-        return self.width(), self.height()
+        return (self.width(), self.height())
+
+    # TODO group hybrid stuff elsewhere
+    def is_hybrid_composite(self) -> bool:
+        return self.args.anim_args.hybrid_composite != 'None'
+
+    def is_normal_hybrid_composite(self) -> bool:
+        return self.args.anim_args.hybrid_composite == 'Normal'
+
+    def has_hybrid_motion(self) -> bool:
+        return self.args.anim_args.hybrid_motion in ['Optical Flow', 'Affine', 'Perspective']
+
+    def is_hybrid_available(self) -> bool:
+        return self.is_hybrid_composite() or self.has_hybrid_motion()
+
+    def is_hybrid_composite_before_motion(self) -> bool:
+        return self.args.anim_args.hybrid_composite == 'Before Motion'
+
+    def is_hybrid_composite_after_generation(self) -> bool:
+        return self.args.anim_args.hybrid_composite == 'After Generation'
+
+    def is_color_match_to_be_initialized(self, color_match_sample):
+        """Determines whether to initialize color matching based on the given conditions."""
+        has_video_input = self.args.anim_args.color_coherence == 'Video Input' and self.is_hybrid_available()
+        has_image_color_coherence = self.args.anim_args.color_coherence == 'Image'
+        has_any_color_sample = color_match_sample is not None  # TODO extract to own method?
+        has_coherent_non_legacy_color_match = (self.args.anim_args.color_coherence != 'None'
+                                               and not self.args.anim_args.legacy_colormatch)
+        has_sample_and_match = has_any_color_sample and has_coherent_non_legacy_color_match
+        return has_video_input or has_image_color_coherence or has_sample_and_match
+
+    def has_color_coherence(self):
+        return self.args.anim_args.color_coherence != 'None'
+
+    def is_resuming_from_timestring(self):
+        return self.args.anim_args.resume_from_timestring
+
+    def has_video_input(self):
+        return self.animation_mode.has_video_input
+
+    def has_img2img_fix_steps(self):
+        return 'img2img_fix_steps' in self.args.opts.data and self.args.opts.data["img2img_fix_steps"]
+
+    def cadence(self) -> int:
+        return int(self.args.anim_args.diffusion_cadence)
+
+    @classmethod
+    def create_output_directory_for_the_batch(self, dir):
+        os.makedirs(dir, exist_ok=True)
+        print(f"Saving animation frames to:\n{dir}")
 
     @classmethod
     def create_parseq_adapter(cls, args):
@@ -124,11 +175,6 @@ class RenderInit:
             unpack_controlnet_vids(args, anim_args, controlnet_args)
 
     @classmethod
-    def create_output_directory_for_the_batch(cls, args):
-        os.makedirs(args.outdir, exist_ok=True)
-        print(f"Saving animation frames to:\n{args.outdir}")
-
-    @classmethod
     def save_settings_txt(cls, args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root):
         save_settings_from_animation_run(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
 
@@ -143,16 +189,19 @@ class RenderInit:
         # attached as a property to this class to be used for one single render only.
         RenderInit.init_looper_if_active(args, loop_args)
         RenderInit.handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
-        RenderInit.create_output_directory_for_the_batch(args)
+        RenderInit.create_output_directory_for_the_batch(args.outdir)
         RenderInit.save_settings_txt(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
         RenderInit.maybe_resume_from_timestring(anim_args, root)
 
     @classmethod
     def create(cls, args_argument, parseq_args, anim_args, video_args, controlnet_args,
                loop_args, opts, root) -> 'RenderInit':
+        # TODO deepcopy args?
         args = RenderInitArgs(args_argument, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
+        output_directory = args_argument.outdir
+        is_use_mask = args_argument.use_mask
         parseq_adapter = RenderInit.create_parseq_adapter(args)
-        srt = Srt.create_if_active(opts.data, args_argument.outdir, root.timestring, video_args.fps)
+        srt = Srt.create_if_active(opts.data, output_directory, root.timestring, video_args.fps)
         animation_keys = AnimationKeys.from_args(args, parseq_adapter, args_argument.seed)
         animation_mode = AnimationMode.from_args(args)
         prompt_series = RenderInit.select_prompts(parseq_adapter, anim_args, animation_keys, root)
@@ -160,7 +209,7 @@ class RenderInit:
             animation_mode, root, anim_args, args_argument)
         instance = object.__new__(cls)  # creating the instance without raising the type error defined in __new__.
         instance.__init__(args_argument.seed, args, parseq_adapter, srt,
-                          animation_keys, animation_mode, prompt_series, depth_model)
+                          animation_keys, animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
         # Ideally, a call to render_animation in render.py shouldn't cause changes in any of the args passed there.
         # It may be preferable to work on temporary copies within tight scope.
         # TODO avoid or isolate more side effects
