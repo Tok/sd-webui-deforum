@@ -29,26 +29,27 @@ from modules.shared import opts, cmd_opts, state, sd_model
 
 from .colors import maintain_colors
 from .composable_masks import compose_mask_with_check
-from .hybrid_video import (get_matrix_for_hybrid_motion, get_matrix_for_hybrid_motion_prev,
-                           get_flow_for_hybrid_motion, get_flow_for_hybrid_motion_prev, image_transform_ransac,
-                           image_transform_optical_flow, abs_flow_to_rel_flow,
-                           rel_flow_to_abs_flow)
+from .hybrid_video import (image_transform_ransac, image_transform_optical_flow,
+                           abs_flow_to_rel_flow, rel_flow_to_abs_flow)
 from .image_sharpening import unsharp_mask
-from .load_images import get_mask, load_img, load_image, get_mask_from_file
+from .load_images import get_mask, load_img, load_image
 from .masks import do_overlay_mask
 from .noise import add_noise
 from .prompt import prepare_prompt
 from .rendering.data.schedule import Schedule
 from .rendering.initialization import RenderInit
 from .rendering.util import put_if_present, call_anim_frame_warp
-from .rendering.util.call_utils import call_get_flow_from_images, call_generate, call_render_preview, \
-    call_hybrid_composite
+from .rendering.util.call_utils import (call_get_flow_from_images, call_generate, call_render_preview,
+                                        call_hybrid_composite, call_format_animation_params,
+                                        call_write_frame_subtitle, call_get_mask_from_file_with_frame,
+                                        call_get_mask_from_file, call_get_next_frame,
+                                        call_get_matrix_for_hybrid_motion, call_get_matrix_for_hybrid_motion_prev,
+                                        call_get_flow_for_hybrid_motion, call_get_flow_for_hybrid_motion_prev)
 from .rendering.util.memory_utils import MemoryUtils
 from .resume import get_resume_vars
 from .save_images import save_image
 from .seed import next_seed
-from .subtitle_handler import write_frame_subtitle, format_animation_params
-from .video_audio_utilities import get_frame_name, get_next_frame
+from .video_audio_utilities import get_frame_name
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
@@ -105,8 +106,8 @@ def run_render_animation(init):
 
     if (init.args.args.use_init
             and ((init.args.args.init_image != None
-            and init.args.args.init_image != '')
-            or init.args.args.init_image_box != None)):
+                  and init.args.args.init_image != '')
+                 or init.args.args.init_image_box != None)):
         _, mask_image = load_img(init.args.args.init_image,
                                  init.args.args.init_image_box,
                                  shape=init.dimensions(),
@@ -118,18 +119,12 @@ def run_render_animation(init):
     # Video mask overrides the init image mask, also, won't be searching for init_mask if use_mask_video is set
     # Made to solve https://github.com/deforum-art/deforum-for-automatic1111-webui/issues/386
     if init.args.anim_args.use_mask_video:
-        init.args.args.mask_file = get_mask_from_file(
-            get_next_frame(init.output_directory, init.args.anim_args.video_mask_path, frame_idx, True),
-            init.args.args)
-        init.args.root.noise_mask = get_mask_from_file(
-            get_next_frame(init.output_directory, init.args.anim_args.video_mask_path, frame_idx, True),
-            init.args.args)
-        mask_vals['video_mask'] = get_mask_from_file(
-            get_next_frame(init.output_directory, init.args.anim_args.video_mask_path, frame_idx, True),
-            init.args.args)
-        noise_mask_vals['video_mask'] = get_mask_from_file(
-            get_next_frame(init.output_directory, init.args.anim_args.video_mask_path, frame_idx, True),
-            init.args.args)
+        temp_mask = call_get_mask_from_file(init, frame_idx, True)
+        init.args.args.mask_file = temp_mask
+        init.args.args.mask_file = temp_mask
+        init.args.root.noise_mask = temp_mask
+        mask_vals['video_mask'] = temp_mask
+        noise_mask_vals['video_mask'] = temp_mask
     elif mask_image is None and init.is_use_mask:
         mask_vals['video_mask'] = get_mask(init.args.args)
         noise_mask_vals['video_mask'] = get_mask(init.args.args)  # TODO?: add a different default noisc mask
@@ -206,10 +201,8 @@ def run_render_animation(init):
 
         if turbo_steps == 1 and opts.data.get("deforum_save_gen_info_as_srt"):
             params_to_print = opts.data.get("deforum_save_gen_info_as_srt_params", ['Seed'])
-            params_string = format_animation_params(init.animation_keys.deform_keys, init.prompt_series, frame_idx,
-                                                    params_to_print)
-            write_frame_subtitle(init.srt.filename, frame_idx, init.srt.frame_duration,
-                                 f"F#: {frame_idx}; Cadence: false; Seed: {init.args.args.seed}; {params_string}")
+            params_string = call_format_animation_params(init, frame_idx, params_to_print)
+            call_write_frame_subtitle(init, frame_idx, params_string)
             params_string = None  # FIXME ??
 
         # emit in-between frames
@@ -236,12 +229,8 @@ def run_render_animation(init):
 
                 if opts.data.get("deforum_save_gen_info_as_srt"):
                     params_to_print = opts.data.get("deforum_save_gen_info_as_srt_params", ['Seed'])
-                    params_string = format_animation_params(init.animation_keys.deform_keys,
-                                                            init.prompt_series,
-                                                            tween_frame_idx,
-                                                            params_to_print)
-                    write_frame_subtitle(init.srt.filename, tween_frame_idx, init.srt.frame_duration,
-                                         f"F#: {tween_frame_idx}; Cadence: {tween < 1.0}; Seed: {init.args.args.seed}; {params_string}")
+                    params_string = call_format_animation_params(init, tween_frame_idx, params_to_print)
+                    call_write_frame_subtitle(init, tween_frame_idx, params_string, tween < 1.0)
                     params_string = None
 
                 print(
@@ -261,10 +250,7 @@ def run_render_animation(init):
                 if tween_frame_idx > 0:
                     if init.args.anim_args.hybrid_motion in ['Affine', 'Perspective']:
                         if init.args.anim_args.hybrid_motion_use_prev_img:
-                            matrix = get_matrix_for_hybrid_motion_prev(tween_frame_idx - 1,
-                                                                       init.dimensions(),
-                                                                       init.animation_mode.hybrid_input_files, prev_img,
-                                                                       init.args.anim_args.hybrid_motion)
+                            matrix = call_get_matrix_for_hybrid_motion_prev(init, tween_frame_idx - 1, prev_img)
                             if advance_prev:
                                 turbo_prev_image = image_transform_ransac(turbo_prev_image, matrix,
                                                                           init.args.anim_args.hybrid_motion)
@@ -272,10 +258,7 @@ def run_render_animation(init):
                                 turbo_next_image = image_transform_ransac(turbo_next_image, matrix,
                                                                           init.args.anim_args.hybrid_motion)
                         else:
-                            matrix = get_matrix_for_hybrid_motion(tween_frame_idx - 1,
-                                                                  init.dimensions(),
-                                                                  init.animation_mode.hybrid_input_files,
-                                                                  init.args.anim_args.hybrid_motion)
+                            matrix = call_get_matrix_for_hybrid_motion(init, tween_frame_idx - 1)
                             if advance_prev:
                                 turbo_prev_image = image_transform_ransac(turbo_prev_image, matrix,
                                                                           init.args.anim_args.hybrid_motion)
@@ -284,17 +267,7 @@ def run_render_animation(init):
                                                                           init.args.anim_args.hybrid_motion)
                     if init.args.anim_args.hybrid_motion in ['Optical Flow']:
                         if init.args.anim_args.hybrid_motion_use_prev_img:
-                            flow = get_flow_for_hybrid_motion_prev(tween_frame_idx - 1,
-                                                                   init.dimensions(),
-                                                                   init.animation_mode.hybrid_input_files,
-                                                                   init.animation_mode.hybrid_frame_path,
-                                                                   init.animation_mode.prev_flow,
-                                                                   prev_img,
-                                                                   init.args.anim_args.hybrid_flow_method,
-                                                                   init.animation_mode.raft_model,
-                                                                   init.args.anim_args.hybrid_flow_consistency,
-                                                                   init.args.anim_args.hybrid_consistency_blur,
-                                                                   init.args.anim_args.hybrid_comp_save_extra_frames)
+                            flow = call_get_flow_for_hybrid_motion_prev(init, tween_frame_idx - 1, prev_img)
                             if advance_prev:
                                 turbo_prev_image = image_transform_optical_flow(turbo_prev_image, flow,
                                                                                 hybrid_comp_schedules['flow_factor'])
@@ -303,15 +276,7 @@ def run_render_animation(init):
                                                                                 hybrid_comp_schedules['flow_factor'])
                             init.animation_mode.prev_flow = flow  # FIXME shouldn't
                         else:
-                            flow = get_flow_for_hybrid_motion(tween_frame_idx - 1, init.dimensions(),
-                                                              init.animation_mode.hybrid_input_files,
-                                                              init.animation_mode.hybrid_frame_path,
-                                                              init.animation_mode.prev_flow,
-                                                              init.args.anim_args.hybrid_flow_method,
-                                                              init.animation_mode.raft_model,
-                                                              init.args.anim_args.hybrid_flow_consistency,
-                                                              init.args.anim_args.hybrid_consistency_blur,
-                                                              init.args.anim_args.hybrid_comp_save_extra_frames)
+                            flow = call_get_flow_for_hybrid_motion(init, tween_frame_idx - 1)
                             if advance_prev:
                                 turbo_prev_image = image_transform_optical_flow(turbo_prev_image, flow,
                                                                                 hybrid_comp_schedules['flow_factor'])
@@ -363,7 +328,8 @@ def run_render_animation(init):
                 cv2.imwrite(save_path, img)
 
                 if init.args.anim_args.save_depth_maps:
-                    dm_save_path = os.path.join(init.output_directory, f"{init.args.root.timestring}_depth_{tween_frame_idx:09}.png")
+                    dm_save_path = os.path.join(init.output_directory,
+                                                f"{init.args.root.timestring}_depth_{tween_frame_idx:09}.png")
                     init.depth_model.save(dm_save_path, depth)
 
         # get color match for video outside of prev_img conditional
@@ -388,39 +354,15 @@ def run_render_animation(init):
             # hybrid video motion - warps prev_img to match motion, usually to prepare for compositing
             if init.args.anim_args.hybrid_motion in ['Affine', 'Perspective']:
                 if init.args.anim_args.hybrid_motion_use_prev_img:
-                    matrix = get_matrix_for_hybrid_motion_prev(frame_idx - 1,
-                                                               init.dimensions(),
-                                                               init.animation_mode.hybrid_input_files, prev_img,
-                                                               init.args.anim_args.hybrid_motion)
+                    matrix = call_get_matrix_for_hybrid_motion_prev(init, frame_idx - 1, prev_img)
                 else:
-                    matrix = get_matrix_for_hybrid_motion(frame_idx - 1,
-                                                          init.dimensions(),
-                                                          init.animation_mode.hybrid_input_files,
-                                                          init.args.anim_args.hybrid_motion)
+                    matrix = call_get_matrix_for_hybrid_motion(init, frame_idx - 1)
                 prev_img = image_transform_ransac(prev_img, matrix, init.args.anim_args.hybrid_motion)
             if init.args.anim_args.hybrid_motion in ['Optical Flow']:
                 if init.args.anim_args.hybrid_motion_use_prev_img:
-                    flow = get_flow_for_hybrid_motion_prev(frame_idx - 1,
-                                                           init.dimensions(),
-                                                           init.animation_mode.hybrid_input_files,
-                                                           init.animation_mode.hybrid_frame_path,
-                                                           init.animation_mode.prev_flow, prev_img,
-                                                           init.args.anim_args.hybrid_flow_method,
-                                                           init.animation_mode.raft_model,
-                                                           init.args.anim_args.hybrid_flow_consistency,
-                                                           init.args.anim_args.hybrid_consistency_blur,
-                                                           init.args.anim_args.hybrid_comp_save_extra_frames)
+                    flow = call_get_flow_for_hybrid_motion_prev(init, frame_idx - 1, prev_img)
                 else:
-                    flow = get_flow_for_hybrid_motion(frame_idx - 1,
-                                                      init.dimensions(),
-                                                      init.animation_mode.hybrid_input_files,
-                                                      init.animation_mode.hybrid_frame_path,
-                                                      init.animation_mode.prev_flow,
-                                                      init.args.anim_args.hybrid_flow_method,
-                                                      init.animation_mode.raft_model,
-                                                      init.args.anim_args.hybrid_flow_consistency,
-                                                      init.args.anim_args.hybrid_consistency_blur,
-                                                      init.args.anim_args.hybrid_comp_save_extra_frames)
+                    flow = call_get_flow_for_hybrid_motion(init, frame_idx - 1)
                 prev_img = image_transform_optical_flow(prev_img, flow, hybrid_comp_schedules['flow_factor'])
                 init.animation_mode.prev_flow = flow
 
@@ -450,7 +392,8 @@ def run_render_animation(init):
             if init.args.args.use_mask or init.args.anim_args.use_noise_mask:
                 init.args.root.noise_mask = compose_mask_with_check(init.args.root,
                                                                     init.args.args,
-                                                                    noise_mask_seq, # FIXME might be ref'd b4 assignment
+                                                                    noise_mask_seq,
+                                                                    # FIXME might be ref'd b4 assignment
                                                                     noise_mask_vals,
                                                                     Image.fromarray(cv2.cvtColor(contrast_image,
                                                                                                  cv2.COLOR_BGR2RGB)))
@@ -500,16 +443,15 @@ def run_render_animation(init):
 
         # grab init image for current frame
         if init.animation_mode.has_video_input:
-            init_frame = get_next_frame(init.output_directory, init.args.anim_args.video_init_path,
-                                        frame_idx, False)
+            init_frame = call_get_next_frame(init, frame_idx, init.args.anim_args.video_init_path)
             print(f"Using video init frame {init_frame}")
             init.args.args.init_image = init_frame
             init.args.args.init_image_box = None  # init_image_box not used in this case
             init.args.args.strength = max(0.0, min(1.0, strength))
         if init.args.anim_args.use_mask_video:
-            mask_init_frame = get_next_frame(init.output_directory, init.args.anim_args.video_mask_path,
-                                             frame_idx, True)
-            temp_mask = get_mask_from_file(mask_init_frame, init.args.args)
+            mask_init_frame = call_get_next_frame(init, frame_idx, init.args.anim_args.video_mask_path, True)
+            temp_mask = call_get_mask_from_file_with_frame(init, mask_init_frame)
+
             init.args.args.mask_file = temp_mask
             init.args.root.noise_mask = temp_mask
             mask_vals['video_mask'] = temp_mask
