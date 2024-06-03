@@ -484,8 +484,7 @@ def run_render_animation(init):
 
             disposable_image = call_generate(init, frame_idx, schedule)
             disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
-            disposable_flow = call_get_flow_from_images(init, prev_img, disposable_image,
-                                                        optical_flow_redo_generation) / 2
+            disposable_flow = call_get_flow_from_images(init, prev_img, disposable_image, optical_flow_redo_generation)
             disposable_image = cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB)
             disposable_image = image_transform_optical_flow(disposable_image, disposable_flow, redo_flow_factor)
             init.args.args.seed = stored_seed
