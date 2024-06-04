@@ -1,9 +1,9 @@
-import dataclasses
 import numexpr
 import numpy as np
 import os
 import pandas as pd
 
+from dataclasses import dataclass
 from typing import Any
 from .data.anim import AnimationKeys, AnimationMode
 from .data.subtitle import Srt
@@ -15,7 +15,7 @@ from ..parseq_adapter import ParseqAdapter
 from ..settings import save_settings_from_animation_run
 
 
-@dataclasses.dataclass(init=True, frozen=True, repr=False, eq=False)
+@dataclass(init=True, frozen=True, repr=False, eq=False)
 class RenderInitArgs:
     # TODO eventually this should only keep the information required to run render_animation once
     #  for now it's just a direct reference or a copy of the actual args provided to the render_animation call.
@@ -33,7 +33,7 @@ class RenderInitArgs:
         return RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
 
 
-@dataclasses.dataclass(init=True, frozen=True, repr=False, eq=False)
+@dataclass(init=True, frozen=True, repr=False, eq=False)
 class RenderInit:
     """The purpose of this class is to group and control all data used in render_animation"""
     seed: int
@@ -64,7 +64,7 @@ class RenderInit:
 
     def dimensions(self) -> tuple[int, int]:
         # TODO should ideally only be called once each render
-        return (self.width(), self.height())
+        return self.width(), self.height()
 
     # TODO group hybrid stuff elsewhere
     def is_hybrid_composite(self) -> bool:
@@ -221,7 +221,8 @@ class RenderInit:
             animation_mode, root, anim_args, args_argument)
         instance = object.__new__(cls)  # creating the instance without raising the type error defined in __new__.
         instance.__init__(args_argument.seed, args, parseq_adapter, srt,
-                          animation_keys, animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
+                          animation_keys, animation_mode, prompt_series,
+                          depth_model, output_directory, is_use_mask)
         # Ideally, a call to render_animation in render.py shouldn't cause changes in any of the args passed there.
         # It may be preferable to work on temporary copies within tight scope.
         # TODO avoid or isolate more side effects

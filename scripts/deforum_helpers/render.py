@@ -36,6 +36,7 @@ from .load_images import get_mask, load_img, load_image
 from .masks import do_overlay_mask
 from .noise import add_noise
 from .prompt import prepare_prompt
+from .rendering.data import Turbo
 from .rendering.data.schedule import Schedule
 from .rendering.initialization import RenderInit
 from .rendering.util import put_if_present, call_anim_frame_warp
@@ -68,10 +69,7 @@ def run_render_animation(init):
     #  move that stuff to init and eventually try to drop init.args
     #  see dimensions() in RenderInit for an example of delegating the relevant stuff from args.
 
-    # state for interpolating between diffusion steps
-    turbo_steps = 1 if init.has_video_input() else init.cadence()
-    turbo_prev_image, turbo_prev_frame_idx = None, 0
-    turbo_next_image, turbo_next_frame_idx = None, 0
+    turbo = Turbo.create(init)  # state for interpolating between diffusion steps
 
     # initialize vars
     prev_img = None
@@ -84,12 +82,9 @@ def run_render_animation(init):
         prev_frame, next_frame, prev_img, next_img = get_resume_vars(
             folder=init.args.args.outdir,
             timestring=init.args.anim_args.resume_timestring,
-            cadence=turbo_steps)
+            cadence=turbo.steps)
 
-        # set up turbo step vars
-        if turbo_steps > 1:
-            turbo_prev_image, turbo_prev_frame_idx = prev_img, prev_frame
-            turbo_next_image, turbo_next_frame_idx = next_img, next_frame
+        turbo.set_up_step_vars(prev_img, prev_frame, next_img, next_frame)
 
         # advance start_frame to next frame
         start_frame = next_frame + 1
@@ -184,15 +179,14 @@ def run_render_animation(init):
             if init.animation_mode.is_predicting_depths:
                 init.animation_mode.depth_model.to(init.args.root.device)
 
-        if turbo_steps == 1 and opts.data.get("deforum_save_gen_info_as_srt"):
+        if turbo.is_first_step_with_subtitles(init):
             params_to_print = opts.data.get("deforum_save_gen_info_as_srt_params", ['Seed'])
             params_string = call_format_animation_params(init, frame_idx, params_to_print)
             call_write_frame_subtitle(init, frame_idx, params_string)
             params_string = None  # FIXME ??
 
-        # emit in-between frames
-        if turbo_steps > 1:
-            tween_frame_start_idx = max(start_frame, frame_idx - turbo_steps)
+        if turbo.is_emit_in_between_frames():
+            tween_frame_start_idx = max(start_frame, frame_idx - turbo.steps)
             cadence_flow = None
             for tween_frame_idx in range(tween_frame_start_idx, frame_idx):
                 # update progress during cadence
@@ -200,17 +194,15 @@ def run_render_animation(init):
                 state.job_no = tween_frame_idx + 1
                 # cadence vars
                 tween = float(tween_frame_idx - tween_frame_start_idx + 1) / float(frame_idx - tween_frame_start_idx)
-                advance_prev = turbo_prev_image is not None and tween_frame_idx > turbo_prev_frame_idx
-                advance_next = tween_frame_idx > turbo_next_frame_idx
 
                 # optical flow cadence setup before animation warping
                 if (init.args.anim_args.animation_mode in ['2D', '3D']
                         and init.args.anim_args.optical_flow_cadence != 'None'):
                     if init.animation_keys.deform_keys.strength_schedule_series[tween_frame_start_idx] > 0:
-                        if cadence_flow is None and turbo_prev_image is not None and turbo_next_image is not None:
-                            cadence_flow = call_get_flow_from_images(init, turbo_prev_image, turbo_next_image,
+                        if cadence_flow is None and turbo.prev_image is not None and turbo.next_image is not None:
+                            cadence_flow = call_get_flow_from_images(init, turbo.prev_image, turbo.next_image,
                                                                      init.args.anim_args.optical_flow_cadence) / 2
-                            turbo_next_image = image_transform_optical_flow(turbo_next_image, -cadence_flow, 1)
+                            turbo.next_image = image_transform_optical_flow(turbo.next_image, -cadence_flow, 1)
 
                 if opts.data.get("deforum_save_gen_info_as_srt"):
                     params_to_print = opts.data.get("deforum_save_gen_info_as_srt_params", ['Seed'])
@@ -222,51 +214,52 @@ def run_render_animation(init):
                     f"Creating in-between {'' if cadence_flow is None else init.args.anim_args.optical_flow_cadence + ' optical flow '}cadence frame: {tween_frame_idx}; tween:{tween:0.2f};")
 
                 if init.depth_model is not None:
-                    assert (turbo_next_image is not None)
-                    depth = init.depth_model.predict(turbo_next_image, init.args.anim_args.midas_weight,
+                    assert (turbo.next_image is not None)
+                    depth = init.depth_model.predict(turbo.next_image, init.args.anim_args.midas_weight,
                                                      init.args.root.half_precision)
 
-                if advance_prev:
-                    turbo_prev_image, _ = call_anim_frame_warp(init, tween_frame_idx, turbo_prev_image, depth)
-                if advance_next:
-                    turbo_prev_image, _ = call_anim_frame_warp(init, tween_frame_idx, turbo_next_image, depth)
+                # TODO collect images
+                if turbo.is_advance_prev(tween_frame_idx):
+                    turbo.prev_image, _ = call_anim_frame_warp(init, tween_frame_idx, turbo.prev_image, depth)
+                if turbo.is_advance_next(tween_frame_idx):
+                    turbo.prev_image, _ = call_anim_frame_warp(init, tween_frame_idx, turbo.next_image, depth)
 
-                # hybrid video motion - warps turbo_prev_image or turbo_next_image to match motion
+                # hybrid video motion - warps turbo.prev_image or turbo.next_image to match motion
                 if tween_frame_idx > 0:
                     if init.args.anim_args.hybrid_motion in ['Affine', 'Perspective']:
                         if init.args.anim_args.hybrid_motion_use_prev_img:
                             matrix = call_get_matrix_for_hybrid_motion_prev(init, tween_frame_idx - 1, prev_img)
-                            if advance_prev:
-                                turbo_prev_image = image_transform_ransac(turbo_prev_image, matrix,
+                            if turbo.is_advance_prev(tween_frame_idx):
+                                turbo.prev_image = image_transform_ransac(turbo.prev_image, matrix,
                                                                           init.args.anim_args.hybrid_motion)
-                            if advance_next:
-                                turbo_next_image = image_transform_ransac(turbo_next_image, matrix,
+                            if turbo.is_advance_next(tween_frame_idx):
+                                turbo.next_image = image_transform_ransac(turbo.next_image, matrix,
                                                                           init.args.anim_args.hybrid_motion)
                         else:
                             matrix = call_get_matrix_for_hybrid_motion(init, tween_frame_idx - 1)
-                            if advance_prev:
-                                turbo_prev_image = image_transform_ransac(turbo_prev_image, matrix,
+                            if turbo.is_advance_prev(tween_frame_idx):
+                                turbo.prev_image = image_transform_ransac(turbo.prev_image, matrix,
                                                                           init.args.anim_args.hybrid_motion)
-                            if advance_next:
-                                turbo_next_image = image_transform_ransac(turbo_next_image, matrix,
+                            if turbo.is_advance_next(tween_frame_idx):
+                                turbo.next_image = image_transform_ransac(turbo.next_image, matrix,
                                                                           init.args.anim_args.hybrid_motion)
                     if init.args.anim_args.hybrid_motion in ['Optical Flow']:
                         if init.args.anim_args.hybrid_motion_use_prev_img:
                             flow = call_get_flow_for_hybrid_motion_prev(init, tween_frame_idx - 1, prev_img)
-                            if advance_prev:
-                                turbo_prev_image = image_transform_optical_flow(turbo_prev_image, flow,
+                            if turbo.is_advance_prev(tween_frame_idx):
+                                turbo.prev_image = image_transform_optical_flow(turbo.prev_image, flow,
                                                                                 hybrid_comp_schedules['flow_factor'])
-                            if advance_next:
-                                turbo_next_image = image_transform_optical_flow(turbo_next_image, flow,
+                            if turbo.is_advance_next(tween_frame_idx):
+                                turbo.next_image = image_transform_optical_flow(turbo.next_image, flow,
                                                                                 hybrid_comp_schedules['flow_factor'])
-                            init.animation_mode.prev_flow = flow  # FIXME shouldn't
+                            init.animation_mode.prev_flow = flow
                         else:
                             flow = call_get_flow_for_hybrid_motion(init, tween_frame_idx - 1)
-                            if advance_prev:
-                                turbo_prev_image = image_transform_optical_flow(turbo_prev_image, flow,
+                            if turbo.is_advance_prev(tween_frame_idx):
+                                turbo.prev_image = image_transform_optical_flow(turbo.prev_image, flow,
                                                                                 hybrid_comp_schedules['flow_factor'])
-                            if advance_next:
-                                turbo_next_image = image_transform_optical_flow(turbo_next_image, flow,
+                            if turbo.is_advance_next(tween_frame_idx):
+                                turbo.next_image = image_transform_optical_flow(turbo.next_image, flow,
                                                                                 hybrid_comp_schedules['flow_factor'])
                             init.animation_mode.prev_flow = flow
 
@@ -276,21 +269,21 @@ def run_render_animation(init):
                     cadence_flow = abs_flow_to_rel_flow(cadence_flow, init.width(), init.height())
                     cadence_flow, _ = call_anim_frame_warp(init, tween_frame_idx, cadence_flow, depth)
                     cadence_flow_inc = rel_flow_to_abs_flow(cadence_flow, init.width(), init.height()) * tween
-                    if advance_prev:
-                        turbo_prev_image = image_transform_optical_flow(turbo_prev_image,
+                    if is_advance_prev:
+                        turbo.prev_image = image_transform_optical_flow(turbo.prev_image,
                                                                         cadence_flow_inc,
                                                                         cadence_flow_factor)
-                    if advance_next:
-                        turbo_next_image = image_transform_optical_flow(turbo_next_image,
+                    if is_advance_next:
+                        turbo.next_image = image_transform_optical_flow(turbo.next_image,
                                                                         cadence_flow_inc,
                                                                         cadence_flow_factor)
 
-                turbo_prev_frame_idx = turbo_next_frame_idx = tween_frame_idx
+                turbo.prev_frame_idx = turbo.next_frame_idx = tween_frame_idx
 
-                if turbo_prev_image is not None and tween < 1.0:
-                    img = turbo_prev_image * (1.0 - tween) + turbo_next_image * tween
+                if turbo.prev_image is not None and tween < 1.0:
+                    img = turbo.prev_image * (1.0 - tween) + turbo.next_image * tween
                 else:
-                    img = turbo_next_image
+                    img = turbo.next_image
 
                 # intercept and override to grayscale
                 if init.args.anim_args.color_force_grayscale:
@@ -436,7 +429,6 @@ def run_render_animation(init):
         if init.args.anim_args.use_mask_video:
             mask_init_frame = call_get_next_frame(init, frame_idx, init.args.anim_args.video_mask_path, True)
             temp_mask = call_get_mask_from_file_with_frame(init, mask_init_frame)
-
             init.args.args.mask_file = temp_mask
             init.args.root.noise_mask = temp_mask
             mask_vals['video_mask'] = temp_mask
@@ -535,10 +527,10 @@ def run_render_animation(init):
         if not init.animation_mode.has_video_input:
             prev_img = opencv_image
 
-        if turbo_steps > 1:
-            turbo_prev_image, turbo_prev_frame_idx = turbo_next_image, turbo_next_frame_idx
-            turbo_next_image, turbo_next_frame_idx = opencv_image, frame_idx
-            frame_idx += turbo_steps
+        if turbo.steps > 1:
+            turbo.prev_image, turbo.prev_frame_idx = turbo.next_image, turbo.next_frame_idx
+            turbo.next_image, turbo.next_frame_idx = opencv_image, frame_idx
+            frame_idx += turbo.steps
         else:
             filename = f"{init.args.root.timestring}_{frame_idx:09}.png"
             save_image(image, 'PIL', filename, init.args.args, init.args.video_args, init.args.root)

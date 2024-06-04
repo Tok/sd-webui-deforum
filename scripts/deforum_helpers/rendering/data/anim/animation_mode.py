@@ -1,13 +1,13 @@
-import dataclasses
 import os
 
+from dataclasses import dataclass
 from typing import Any
 from ....hybrid_video import hybrid_generation
 from ....RAFT import RAFT
 
 
 # TODO FIXME find a way to assign prev_flow right away, then set frozen=true again, otherwise move prev_flow elsewhere.
-@dataclasses.dataclass(init=True, frozen=False, repr=False, eq=False)
+@dataclass(init=True, frozen=False, repr=False, eq=False)
 class AnimationMode:
     has_video_input: bool = False
     hybrid_input_files: Any = None

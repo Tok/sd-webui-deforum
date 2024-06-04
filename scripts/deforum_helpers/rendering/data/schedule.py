@@ -1,9 +1,8 @@
-import dataclasses
-
+from dataclasses import dataclass
 from typing import Optional, Any
 
 
-@dataclasses.dataclass(init=True, frozen=True, repr=False, eq=False)
+@dataclass(init=True, frozen=True, repr=False, eq=False)
 class Schedule:
     steps: int
     sampler_name: str
@@ -14,11 +13,8 @@ class Schedule:
     mask: Optional[Any]
     noise_mask: Optional[Any]
 
-    def __new__(cls, *args, **kwargs):  # locks the normal constructor to enforce proper initialization
-        raise TypeError("Use Schedule.create() to create new instances.")
-
-    @classmethod
-    def create(cls, keys, i, anim_args, args):
+    @staticmethod
+    def create(keys, i, anim_args, args):
         # TODO typecheck keys as DeformAnimKeys or provide key collection or something
         """Create a new Schedule instance based on the provided parameters."""
         steps = Schedule.schedule_steps(keys, i, anim_args)
@@ -29,10 +25,7 @@ class Schedule:
         eta_ancestral = Schedule.schedule_ancestral_eta(keys, i, anim_args)
         mask = Schedule.schedule_mask(keys, i, args)  # TODO for some reason use_mask is in args instead of anim_args
         noise_mask = Schedule.schedule_noise_mask(keys, i, anim_args)
-
-        instance = object.__new__(cls)  # creating the instance without raising the type error defined in __new__.
-        instance.__init__(steps, sampler_name, clipskip, noise_multiplier, eta_ddim, eta_ancestral, mask, noise_mask)
-        return instance
+        return Schedule(steps, sampler_name, clipskip, noise_multiplier, eta_ddim, eta_ancestral, mask, noise_mask)
 
     @staticmethod
     def _has_schedule(keys, i):
