@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from .data.anim import AnimationKeys, AnimationMode
+from .data.proxy.root_data_proxy import RootDataProxyWrapper
 from .data.subtitle import Srt
 from .util import MemoryUtils
 from ..deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
@@ -81,6 +82,7 @@ class StepInit:
 @dataclass(init=True, frozen=True, repr=False, eq=False)
 class RenderInit:
     """The purpose of this class is to group and control all data used in render_animation"""
+    root: RootDataProxyWrapper
     seed: int
     args: RenderInitArgs
     parseq_adapter: Any
@@ -250,7 +252,6 @@ class RenderInit:
     @staticmethod
     def create(args_argument, parseq_args, anim_args, video_args, controlnet_args,
                loop_args, opts, root) -> 'RenderInit':
-        # TODO deepcopy args?
         args = RenderInitArgs(args_argument, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
         output_directory = args_argument.outdir
         is_use_mask = args_argument.use_mask
@@ -262,10 +263,14 @@ class RenderInit:
         depth_model = RenderInit.create_depth_model_and_enable_depth_map_saving_if_active(
             animation_mode, root, anim_args, args_argument)
 
-        instance = RenderInit(args_argument.seed, args, parseq_adapter, srt, animation_keys,
+        # TODO proxy other args like this.
+        # FIXME, somethings are still missing or accessors are not behaving as they should in the wrapper.
+        # root_proxy = RootDataProxyWrapper.create(root)
+        root_proxy = root
+
+        instance = RenderInit(root_proxy, args_argument.seed, args, parseq_adapter, srt, animation_keys,
                               animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
-        # Ideally, a call to render_animation in render.py shouldn't cause changes in any of the args passed there.
-        # It may be preferable to work on temporary copies within tight scope.
+
         # TODO avoid or isolate more side effects
         RenderInit.do_void_inits(args_argument, loop_args, controlnet_args, anim_args, parseq_args, video_args, root)
 

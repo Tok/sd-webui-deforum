@@ -39,15 +39,32 @@ from .prompt import prepare_prompt
 from .rendering.data import Turbo
 from .rendering.data.schedule import Schedule
 from .rendering.initialization import RenderInit, StepInit
-from .rendering.util import put_if_present, call_anim_frame_warp
-from .rendering.util.call_utils import (call_get_flow_from_images, call_generate, call_render_preview,
-                                        call_hybrid_composite, call_format_animation_params,
-                                        call_write_frame_subtitle, call_get_mask_from_file_with_frame,
-                                        call_get_mask_from_file, call_get_next_frame,
-                                        call_get_matrix_for_hybrid_motion, call_get_matrix_for_hybrid_motion_prev,
-                                        call_get_flow_for_hybrid_motion, call_get_flow_for_hybrid_motion_prev)
+from .rendering.util import put_if_present, put_all
+from .rendering.util.call_utils import (
+    # Animation Functions
+    call_anim_frame_warp,
+    call_format_animation_params,
+    call_get_next_frame,
+    call_write_frame_subtitle,
+
+    # Generation and Rendering
+    call_generate,
+    call_render_preview,
+
+    # Hybrid Motion Functions
+    call_get_flow_for_hybrid_motion,
+    call_get_flow_for_hybrid_motion_prev,
+    call_get_matrix_for_hybrid_motion,
+    call_get_matrix_for_hybrid_motion_prev,
+    call_hybrid_composite,
+
+    # Mask Functions
+    call_get_mask_from_file,
+    call_get_mask_from_file_with_frame,
+
+    # Flow Functions
+    call_get_flow_from_images)
 from .rendering.util.memory_utils import MemoryUtils
-from .rendering.util.utils import put_all
 from .resume import get_resume_vars
 from .save_images import save_image
 from .seed import next_seed
@@ -56,15 +73,19 @@ from .video_audio_utilities import get_frame_name
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
     render_init = RenderInit.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
+    # print("Debug: " + str(render_init.root.proxy))
     # TODO method is temporarily torn apart to remove args from direct access in larger execution scope.
     run_render_animation(render_init)
+
+
+def run_render_animation_controlled(init):
+    raise NotImplementedError("not implemented.")
 
 
 def run_render_animation(init):
     # TODO refactor to try and avoid all usage and reassignments to "init.args.args".
     # TODO try to avoid late init of "prev_flow" or isolate it together with all other moving parts.
     # TODO isolate "depth" with other moving parts
-    # TODO cleanup and find potential side effects in 31 refs to init.args.root
     # TODO isolate the relevant data in +250 refs to init.args,
     #  move that stuff to init and eventually try to drop init.args
     #  see dimensions() in RenderInit for an example of delegating the relevant stuff from args.
@@ -143,7 +164,6 @@ def run_render_animation(init):
 
         step_init = StepInit.create(init.animation_keys.deform_keys, frame_idx)
 
-
         # TODO eventually move schedule into new Step class
         schedule = Schedule.create(init.animation_keys.deform_keys, frame_idx, init.args.anim_args, init.args.args)
 
@@ -158,7 +178,7 @@ def run_render_animation(init):
             sd_hijack.model_hijack.undo_hijack(sd_model)
             devices.torch_gc()
             if init.animation_mode.is_predicting_depths:
-                init.animation_mode.depth_model.to(init.args.root.device)
+                init.animation_mode.depth_model.to(init.root.device)
 
         if turbo.is_first_step_with_subtitles(init):
             params_to_print = opts.data.get("deforum_save_gen_info_as_srt_params", ['Seed'])
@@ -197,7 +217,7 @@ def run_render_animation(init):
                 if init.depth_model is not None:
                     assert (turbo.next_image is not None)
                     depth = init.depth_model.predict(turbo.next_image, init.args.anim_args.midas_weight,
-                                                     init.args.root.half_precision)
+                                                     init.root.half_precision)
 
                 # TODO collect images
                 if turbo.is_advance_prev(tween_frame_idx):
@@ -280,13 +300,13 @@ def run_render_animation(init):
                 # state.current_image = Image.fromarray(cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2RGB))
 
                 # saving cadence frames
-                filename = f"{init.args.root.timestring}_{tween_frame_idx:09}.png"
+                filename = f"{init.root.timestring}_{tween_frame_idx:09}.png"
                 save_path = os.path.join(init.args.args.outdir, filename)
                 cv2.imwrite(save_path, img)
 
                 if init.args.anim_args.save_depth_maps:
                     dm_save_path = os.path.join(init.output_directory,
-                                                f"{init.args.root.timestring}_depth_{tween_frame_idx:09}.png")
+                                                f"{init.root.timestring}_depth_{tween_frame_idx:09}.png")
                     init.depth_model.save(dm_save_path, depth)
 
         # get color match for video outside of prev_img conditional
@@ -352,23 +372,23 @@ def run_render_animation(init):
                                               mask_image if init.args.args.use_mask else None)
             # apply frame noising
             if init.args.args.use_mask or init.args.anim_args.use_noise_mask:
-                init.args.root.noise_mask = compose_mask_with_check(init.args.root,
-                                                                    init.args.args,
-                                                                    noise_mask_seq,
-                                                                    # FIXME might be ref'd b4 assignment
-                                                                    noise_mask_vals,
-                                                                    Image.fromarray(cv2.cvtColor(contrast_image,
-                                                                                                 cv2.COLOR_BGR2RGB)))
+                init.root.noise_mask = compose_mask_with_check(init.root,
+                                                               init.args.args,
+                                                               noise_mask_seq,
+                                                               # FIXME might be ref'd b4 assignment
+                                                               noise_mask_vals,
+                                                               Image.fromarray(cv2.cvtColor(contrast_image,
+                                                                                            cv2.COLOR_BGR2RGB)))
             noised_image = add_noise(contrast_image, step_init.noise, init.args.args.seed,
                                      init.args.anim_args.noise_type,
                                      (init.args.anim_args.perlin_w, init.args.anim_args.perlin_h,
                                       init.args.anim_args.perlin_octaves,
                                       init.args.anim_args.perlin_persistence),
-                                     init.args.root.noise_mask, init.args.args.invert_mask)
+                                     init.root.noise_mask, init.args.args.invert_mask)
 
             # use transformed previous frame as init for current
             init.args.args.use_init = True
-            init.args.root.init_sample = Image.fromarray(cv2.cvtColor(noised_image, cv2.COLOR_BGR2RGB))
+            init.root.init_sample = Image.fromarray(cv2.cvtColor(noised_image, cv2.COLOR_BGR2RGB))
             init.args.args.strength = max(0.0, min(1.0, step_init.strength))
 
         init.args.args.scale = step_init.scale
@@ -390,15 +410,14 @@ def run_render_animation(init):
 
         # SubSeed scheduling
         if init.args.anim_args.enable_subseed_scheduling:
-            init.args.root.subseed = int(init.animation_keys.deform_keys.subseed_schedule_series[frame_idx])
-            init.args.root.subseed_strength = float(
+            init.root.subseed = int(init.animation_keys.deform_keys.subseed_schedule_series[frame_idx])
+            init.root.subseed_strength = float(
                 init.animation_keys.deform_keys.subseed_strength_schedule_series[frame_idx])
 
         if init.parseq_adapter.manages_seed():
             init.args.anim_args.enable_subseed_scheduling = True
-            init.args.root.subseed = int(init.animation_keys.deform_keys.subseed_schedule_series[frame_idx])
-            init.args.root.subseed_strength = init.animation_keys.deform_keys.subseed_strength_schedule_series[
-                frame_idx]
+            init.root.subseed = int(init.animation_keys.deform_keys.subseed_schedule_series[frame_idx])
+            init.root.subseed_strength = init.animation_keys.deform_keys.subseed_strength_schedule_series[frame_idx]
 
         # set value back into the prompt - prepare and report prompt and seed
         init.args.args.prompt = prepare_prompt(init.args.args.prompt, init.args.anim_args.max_frames,
@@ -415,14 +434,13 @@ def run_render_animation(init):
             mask_init_frame = call_get_next_frame(init, frame_idx, init.args.anim_args.video_mask_path, True)
             temp_mask = call_get_mask_from_file_with_frame(init, mask_init_frame)
             init.args.args.mask_file = temp_mask
-            init.args.root.noise_mask = temp_mask
+            init.root.noise_mask = temp_mask
             mask_vals['video_mask'] = temp_mask
 
         if init.args.args.use_mask:
-            init.args.args.mask_image = compose_mask_with_check(init.args.root, init.args.args,
-                                                                schedule.mask_seq, mask_vals,
-                                                                init.args.root.init_sample) \
-                if init.args.root.init_sample is not None else None  # we need it only after the first frame anyway
+            init.args.args.mask_image = compose_mask_with_check(init.root, init.args.args, schedule.mask_seq,
+                                                                mask_vals, init.root.init_sample) \
+                if init.root.init_sample is not None else None  # we need it only after the first frame anyway
 
         init.animation_keys.update(frame_idx)
         setup_opts(init, schedule)
@@ -451,7 +469,7 @@ def run_render_animation(init):
             disposable_image = image_transform_optical_flow(disposable_image, disposable_flow,
                                                             step_init.redo_flow_factor)
             init.args.args.seed = stored_seed
-            init.args.root.init_sample = Image.fromarray(disposable_image)
+            init.root.init_sample = Image.fromarray(disposable_image)
             del (disposable_image, disposable_flow, stored_seed)
             gc.collect()
 
@@ -470,7 +488,7 @@ def run_render_animation(init):
                     disposable_image = maintain_colors(prev_img, color_match_sample,
                                                        init.args.anim_args.color_coherence)
                 init.args.args.seed = stored_seed
-                init.args.root.init_sample = Image.fromarray(cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB))
+                init.root.init_sample = Image.fromarray(cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB))
             del (disposable_image, stored_seed)  # FIXME disposable_image might be referenced before assignment.
             gc.collect()  # TODO try to eventually kick the gc only once at the end of every generation or iteration.
 
@@ -518,8 +536,8 @@ def run_render_animation(init):
             turbo.next_image, turbo.next_frame_idx = opencv_image, frame_idx
             frame_idx += turbo.steps
         else:
-            filename = f"{init.args.root.timestring}_{frame_idx:09}.png"
-            save_image(image, 'PIL', filename, init.args.args, init.args.video_args, init.args.root)
+            filename = f"{init.root.timestring}_{frame_idx:09}.png"
+            save_image(image, 'PIL', filename, init.args.args, init.args.video_args, init.root)
 
             if init.args.anim_args.save_depth_maps:
                 # TODO move all depth related stuff to new class. (also see RenderInit)
@@ -527,11 +545,11 @@ def run_render_animation(init):
                     lowvram.send_everything_to_cpu()
                     sd_hijack.model_hijack.undo_hijack(sd_model)
                     devices.torch_gc()
-                    init.depth_model.to(init.args.root.device)
+                    init.depth_model.to(init.root.device)
                 depth = init.depth_model.predict(opencv_image, init.args.anim_args.midas_weight,
-                                                 init.args.root.half_precision)
+                                                 init.root.half_precision)
                 init.depth_model.save(
-                    os.path.join(init.output_directory, f"{init.args.root.timestring}_depth_{frame_idx:09}.png"), depth)
+                    os.path.join(init.output_directory, f"{init.root.timestring}_depth_{frame_idx:09}.png"), depth)
                 if MemoryUtils.is_low_or_med_vram():
                     init.depth_model.to('cpu')
                     devices.torch_gc()
@@ -540,7 +558,7 @@ def run_render_animation(init):
             frame_idx += 1
 
         last_preview_frame = progress_and_make_preview(init, image, frame_idx, state, last_preview_frame)
-        update_tracker(init.args.root, frame_idx, init.args.anim_args)
+        update_tracker(init.root, frame_idx, init.args.anim_args)
         init.animation_mode.cleanup()
 
 
@@ -552,7 +570,7 @@ def assign_masks(init, i, is_mask_image, dicts):
     if init.args.anim_args.use_mask_video:
         mask = call_get_mask_from_file(init, i, True)
         init.args.args.mask_file = mask
-        init.args.root.noise_mask = mask
+        init.root.noise_mask = mask
         put_all(dicts, key, mask)
     elif is_mask_image is None and init.is_use_mask:
         put_all(dicts, key, get_mask(init.args.args))  # TODO?: add a different default noisc mask
@@ -571,7 +589,11 @@ def setup_opts(init, schedule):
 
 def progress_and_make_preview(init, image, frame_idx, state, last_preview_frame):
     state.assign_current_image(image)
-    init.args.args.seed = next_seed(init.args.args, init.args.root)  # TODO refactor assignment
+
+    # may reassign init.args.args and/or root.seed_internal # FIXME?
+    init.args.args.seed = next_seed(init.args.args, init.root)  # TODO refactor assignment
+    # init.seed = init.args.args.seed  # TODO group all seeds and sub-seeds
+
     return call_render_preview(init, frame_idx, last_preview_frame)
 
 

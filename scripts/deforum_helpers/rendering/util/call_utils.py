@@ -1,25 +1,46 @@
 from ...animation import anim_frame_warp
 from ...generate import generate
-from ...hybrid_video import (hybrid_composite, get_flow_from_images,
-                             get_matrix_for_hybrid_motion, get_matrix_for_hybrid_motion_prev,
-                             get_flow_for_hybrid_motion_prev, get_flow_for_hybrid_motion)
+from ...hybrid_video import (
+    # Functions related to flow calculation
+    get_flow_from_images,
+    get_flow_for_hybrid_motion,
+    get_flow_for_hybrid_motion_prev,
+
+    # Functions related to matrix calculation
+    get_matrix_for_hybrid_motion,
+    get_matrix_for_hybrid_motion_prev,
+
+    # Other hybrid functions
+    hybrid_composite)
 from ...load_images import get_mask_from_file
 from ...subtitle_handler import format_animation_params, write_frame_subtitle
 from ...video_audio_utilities import get_next_frame, render_preview
 
+"""
+This module provides utility functions for simplifying calls to other modules within the `render.py` module.
 
-# Purpose:
-# This module mostly exists for refactoring and reducing the complexity of render.py without touching any other modules.
-# Currently useful to reduce complexity in calls with many arguments, that have been or will be regrouped into "init".
-# Alternatively all methods may be overloaded in the original modules, but doing so would propagate the Init class to
-# namespaces where it doesn't really belong, which is rather undesirable.
-#
-# Form:
-# The following functions shouldn't contain any complex logic besides perhaps some formatting
-# and aim to directly return with the call to the actual method.
-# - Naming starts with "call_".
-# - "init" to be passed as 1st argument.
-# - pass frame_idx or twin_frame_idx or other indices as 2nd argument "i" where applicable.
+**Purpose:**
+- **Reduce Argument Complexity:**  Provides a way to call functions in other modules without directly handling 
+  a large number of complex arguments. This simplifies code within `render.py` by encapsulating argument management.
+- **Minimize Namespace Pollution:**  Provides an alternative to overloading methods in the original modules, 
+  which would introduce the `RenderInit` class into namespaces where it's not inherently needed.
+
+**Structure:**
+- **Simple Call Forwarding:** Functions in this module primarily act as wrappers. They perform minimal logic, 
+  often just formatting or passing arguments, and directly call the corresponding method.
+- **Naming Convention:**
+    - Function names begin with "call_", followed by the name of the actual method to call.
+    - The `init` object is always passed as the first argument.
+    - Frame indices (e.g., `frame_idx`, `twin_frame_idx`) are passed as the second argument "i", when relevant.
+
+**Example:**
+```python
+# Example function in this module
+def call_some_function(init, i, ...):
+    return some_module.some_function(init.arg77, init.arg.arg.whatever, i, ...)
+```
+"""
+
 
 # Animation:
 def call_anim_frame_warp(init, i, image, depth):
