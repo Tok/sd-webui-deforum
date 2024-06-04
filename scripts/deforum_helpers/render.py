@@ -38,7 +38,7 @@ from .noise import add_noise
 from .prompt import prepare_prompt
 from .rendering.data import Turbo
 from .rendering.data.schedule import Schedule
-from .rendering.initialization import RenderInit
+from .rendering.initialization import RenderInit, StepInit
 from .rendering.util import put_if_present, call_anim_frame_warp
 from .rendering.util.call_utils import (call_get_flow_from_images, call_generate, call_render_preview,
                                         call_hybrid_composite, call_format_animation_params,
@@ -141,27 +141,8 @@ def run_render_animation(init):
 
         print(f"\033[36mAnimation frame: \033[0m{frame_idx}/{init.args.anim_args.max_frames}  ")
 
-        # TODO move this to the new key collection
-        noise = init.animation_keys.deform_keys.noise_schedule_series[frame_idx]
-        strength = init.animation_keys.deform_keys.strength_schedule_series[frame_idx]
-        scale = init.animation_keys.deform_keys.cfg_scale_schedule_series[frame_idx]
-        contrast = init.animation_keys.deform_keys.contrast_schedule_series[frame_idx]
-        kernel = int(init.animation_keys.deform_keys.kernel_schedule_series[frame_idx])
-        sigma = init.animation_keys.deform_keys.sigma_schedule_series[frame_idx]
-        amount = init.animation_keys.deform_keys.amount_schedule_series[frame_idx]
-        threshold = init.animation_keys.deform_keys.threshold_schedule_series[frame_idx]
-        cadence_flow_factor = init.animation_keys.deform_keys.cadence_flow_factor_schedule_series[frame_idx]
-        redo_flow_factor = init.animation_keys.deform_keys.redo_flow_factor_schedule_series[frame_idx]
-        hybrid_comp_schedules = {
-            "alpha": init.animation_keys.deform_keys.hybrid_comp_alpha_schedule_series[frame_idx],
-            "mask_blend_alpha": init.animation_keys.deform_keys.hybrid_comp_mask_blend_alpha_schedule_series[frame_idx],
-            "mask_contrast": init.animation_keys.deform_keys.hybrid_comp_mask_contrast_schedule_series[frame_idx],
-            "mask_auto_contrast_cutoff_low": int(
-                init.animation_keys.deform_keys.hybrid_comp_mask_auto_contrast_cutoff_low_schedule_series[frame_idx]),
-            "mask_auto_contrast_cutoff_high": int(
-                init.animation_keys.deform_keys.hybrid_comp_mask_auto_contrast_cutoff_high_schedule_series[frame_idx]),
-            "flow_factor": init.animation_keys.deform_keys.hybrid_flow_factor_schedule_series[frame_idx]
-        }
+        step_init = StepInit.create(init.animation_keys.deform_keys, frame_idx)
+
 
         # TODO eventually move schedule into new Step class
         schedule = Schedule.create(init.animation_keys.deform_keys, frame_idx, init.args.anim_args, init.args.args)
@@ -248,19 +229,19 @@ def run_render_animation(init):
                             flow = call_get_flow_for_hybrid_motion_prev(init, tween_frame_idx - 1, prev_img)
                             if turbo.is_advance_prev(tween_frame_idx):
                                 turbo.prev_image = image_transform_optical_flow(turbo.prev_image, flow,
-                                                                                hybrid_comp_schedules['flow_factor'])
+                                                                                step_init.flow_factor())
                             if turbo.is_advance_next(tween_frame_idx):
                                 turbo.next_image = image_transform_optical_flow(turbo.next_image, flow,
-                                                                                hybrid_comp_schedules['flow_factor'])
+                                                                                step_init.flow_factor())
                             init.animation_mode.prev_flow = flow
                         else:
                             flow = call_get_flow_for_hybrid_motion(init, tween_frame_idx - 1)
                             if turbo.is_advance_prev(tween_frame_idx):
                                 turbo.prev_image = image_transform_optical_flow(turbo.prev_image, flow,
-                                                                                hybrid_comp_schedules['flow_factor'])
+                                                                                step_init.flow_factor())
                             if turbo.is_advance_next(tween_frame_idx):
                                 turbo.next_image = image_transform_optical_flow(turbo.next_image, flow,
-                                                                                hybrid_comp_schedules['flow_factor'])
+                                                                                step_init.flow_factor())
                             init.animation_mode.prev_flow = flow
 
                 # TODO cadence related transforms to be decoupled and handled in a 2nd pass
@@ -269,14 +250,12 @@ def run_render_animation(init):
                     cadence_flow = abs_flow_to_rel_flow(cadence_flow, init.width(), init.height())
                     cadence_flow, _ = call_anim_frame_warp(init, tween_frame_idx, cadence_flow, depth)
                     cadence_flow_inc = rel_flow_to_abs_flow(cadence_flow, init.width(), init.height()) * tween
-                    if is_advance_prev:
-                        turbo.prev_image = image_transform_optical_flow(turbo.prev_image,
-                                                                        cadence_flow_inc,
-                                                                        cadence_flow_factor)
-                    if is_advance_next:
-                        turbo.next_image = image_transform_optical_flow(turbo.next_image,
-                                                                        cadence_flow_inc,
-                                                                        cadence_flow_factor)
+                    if turbo.is_advance_prev():
+                        turbo.prev_image = image_transform_optical_flow(turbo.prev_image, cadence_flow_inc,
+                                                                        step_init.cadence_flow_factor)
+                    if turbo.is_advance_next():
+                        turbo.next_image = image_transform_optical_flow(turbo.next_image, cadence_flow_inc,
+                                                                        step_init.cadence_flow_factor)
 
                 turbo.prev_frame_idx = turbo.next_frame_idx = tween_frame_idx
 
@@ -327,7 +306,7 @@ def run_render_animation(init):
             # do hybrid compositing before motion
             if init.is_hybrid_composite_before_motion():
                 # TODO test, returned args seem unchanged, so might as well be ignored here (renamed to _)
-                _, prev_img = call_hybrid_composite(init, frame_idx, prev_img, hybrid_comp_schedules)
+                _, prev_img = call_hybrid_composite(init, frame_idx, prev_img, step_init.hybrid_comp_schedules)
 
             # hybrid video motion - warps prev_img to match motion, usually to prepare for compositing
             if init.args.anim_args.hybrid_motion in ['Affine', 'Perspective']:
@@ -341,13 +320,13 @@ def run_render_animation(init):
                     flow = call_get_flow_for_hybrid_motion_prev(init, frame_idx - 1, prev_img)
                 else:
                     flow = call_get_flow_for_hybrid_motion(init, frame_idx - 1)
-                prev_img = image_transform_optical_flow(prev_img, flow, hybrid_comp_schedules['flow_factor'])
+                prev_img = image_transform_optical_flow(prev_img, flow, step_init.flow_factor())
                 init.animation_mode.prev_flow = flow
 
             # do hybrid compositing after motion (normal)
             if init.is_normal_hybrid_composite():
                 # TODO test, returned args seem unchanged, so might as well be ignored here (renamed to _)
-                _, prev_img = call_hybrid_composite(init, frame_idx, prev_img, hybrid_comp_schedules)
+                _, prev_img = call_hybrid_composite(init, frame_idx, prev_img, step_init.hybrid_comp_schedules)
             # apply color matching
             if init.has_color_coherence():
                 if color_match_sample is None:
@@ -361,10 +340,15 @@ def run_render_animation(init):
                 prev_img = cv2.cvtColor(prev_img, cv2.COLOR_GRAY2BGR)
 
             # apply scaling
-            contrast_image = (prev_img * contrast).round().astype(np.uint8)
+            contrast_image = (prev_img * step_init.contrast).round().astype(np.uint8)
             # anti-blur
-            if amount > 0:
-                contrast_image = unsharp_mask(contrast_image, (kernel, kernel), sigma, amount, threshold,
+            if step_init.amount > 0:
+                step_init.kernel_size()
+                contrast_image = unsharp_mask(contrast_image,
+                                              (step_init.kernel, step_init.kernel),
+                                              step_init.sigma,
+                                              step_init.amount,
+                                              step_init.threshold,
                                               mask_image if init.args.args.use_mask else None)
             # apply frame noising
             if init.args.args.use_mask or init.args.anim_args.use_noise_mask:
@@ -375,7 +359,8 @@ def run_render_animation(init):
                                                                     noise_mask_vals,
                                                                     Image.fromarray(cv2.cvtColor(contrast_image,
                                                                                                  cv2.COLOR_BGR2RGB)))
-            noised_image = add_noise(contrast_image, noise, init.args.args.seed, init.args.anim_args.noise_type,
+            noised_image = add_noise(contrast_image, step_init.noise, init.args.args.seed,
+                                     init.args.anim_args.noise_type,
                                      (init.args.anim_args.perlin_w, init.args.anim_args.perlin_h,
                                       init.args.anim_args.perlin_octaves,
                                       init.args.anim_args.perlin_persistence),
@@ -384,9 +369,9 @@ def run_render_animation(init):
             # use transformed previous frame as init for current
             init.args.args.use_init = True
             init.args.root.init_sample = Image.fromarray(cv2.cvtColor(noised_image, cv2.COLOR_BGR2RGB))
-            init.args.args.strength = max(0.0, min(1.0, strength))
+            init.args.args.strength = max(0.0, min(1.0, step_init.strength))
 
-        init.args.args.scale = scale
+        init.args.args.scale = step_init.scale
 
         # Pix2Pix Image CFG Scale - does *nothing* with non pix2pix checkpoints
         init.args.args.pix2pix_img_cfg_scale = float(
@@ -425,7 +410,7 @@ def run_render_animation(init):
             print(f"Using video init frame {init_frame}")
             init.args.args.init_image = init_frame
             init.args.args.init_image_box = None  # init_image_box not used in this case
-            init.args.args.strength = max(0.0, min(1.0, strength))
+            init.args.args.strength = max(0.0, min(1.0, step_init.strength))
         if init.args.anim_args.use_mask_video:
             mask_init_frame = call_get_next_frame(init, frame_idx, init.args.anim_args.video_mask_path, True)
             temp_mask = call_get_mask_from_file_with_frame(init, mask_init_frame)
@@ -453,7 +438,7 @@ def run_render_animation(init):
             if not init.args.args.motion_preview_mode else 'None'
 
         # optical flow redo before generation
-        if optical_flow_redo_generation != 'None' and prev_img is not None and strength > 0:
+        if optical_flow_redo_generation != 'None' and prev_img is not None and step_init.strength > 0:
             stored_seed = init.args.args.seed
             init.args.args.seed = random.randint(0, 2 ** 32 - 1)
             print(
@@ -463,7 +448,8 @@ def run_render_animation(init):
             disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
             disposable_flow = call_get_flow_from_images(init, prev_img, disposable_image, optical_flow_redo_generation)
             disposable_image = cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB)
-            disposable_image = image_transform_optical_flow(disposable_image, disposable_flow, redo_flow_factor)
+            disposable_image = image_transform_optical_flow(disposable_image, disposable_flow,
+                                                            step_init.redo_flow_factor)
             init.args.args.seed = stored_seed
             init.args.root.init_sample = Image.fromarray(disposable_image)
             del (disposable_image, disposable_flow, stored_seed)
@@ -471,7 +457,7 @@ def run_render_animation(init):
 
         # diffusion redo
         if (int(init.args.anim_args.diffusion_redo) > 0
-                and prev_img is not None and strength > 0
+                and prev_img is not None and step_init.strength > 0
                 and not init.args.args.motion_preview_mode):
             stored_seed = init.args.args.seed
             for n in range(0, int(init.args.anim_args.diffusion_redo)):
@@ -498,7 +484,7 @@ def run_render_animation(init):
         if frame_idx > 0 and init.is_hybrid_composite_after_generation():
             temp_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
             # TODO test, returned args seem unchanged, so might as well be ignored here (renamed to _)
-            _, temp_image_2 = call_hybrid_composite(init, frame_idx, temp_image, hybrid_comp_schedules)
+            _, temp_image_2 = call_hybrid_composite(init, frame_idx, temp_image, step_init.hybrid_comp_schedules)
             image = Image.fromarray(cv2.cvtColor(temp_image_2, cv2.COLOR_BGR2RGB))
 
         # color matching on first frame is after generation, color match was collected earlier,
@@ -519,7 +505,7 @@ def run_render_animation(init):
 
         # on strength 0, set color match to generation
         if (((not init.args.anim_args.legacy_colormatch and not init.args.args.use_init)
-             or (init.args.anim_args.legacy_colormatch and strength == 0))
+             or (init.args.anim_args.legacy_colormatch and step_init.strength == 0))
                 and init.args.anim_args.color_coherence not in ['Image', 'Video Input']):
             color_match_sample = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
 
