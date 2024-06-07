@@ -5,6 +5,7 @@ from typing import Any
 import numexpr
 import numpy as np
 import pandas as pd
+from aspectlib import Aspect
 
 from .data.anim import AnimationKeys, AnimationMode
 from .data.proxy.root_data_proxy import RootDataProxyWrapper
@@ -79,8 +80,9 @@ class StepInit:
                 "flow_factor": deform_keys.hybrid_flow_factor_schedule_series[i]})
 
 
-@dataclass(init=True, frozen=True, repr=False, eq=False)
-class RenderInit:
+# TODO refreeze??
+@dataclass(init=True, frozen=False, repr=False, eq=False)
+class RenderInit():
     """The purpose of this class is to group and control all data used in render_animation"""
     root: RootDataProxyWrapper
     seed: int
@@ -93,6 +95,9 @@ class RenderInit:
     depth_model: Any
     output_directory: str
     is_use_mask: bool
+
+    def set_root_proxy(self, root_proxy):
+        self.root = root_proxy
 
     def is_3d(self):
         return self.args.anim_args.animation_mode == '3D'
@@ -265,13 +270,15 @@ class RenderInit:
 
         # TODO proxy other args like this.
         # FIXME, somethings are still missing or accessors are not behaving as they should in the wrapper.
-        # root_proxy = RootDataProxyWrapper.create(root)
-        root_proxy = root
+        #root_proxy = RootDataProxyWrapper.create(root)
+        #root_proxy = root
 
-        instance = RenderInit(root_proxy, args_argument.seed, args, parseq_adapter, srt, animation_keys,
+        instance = RenderInit(None, args_argument.seed, args, parseq_adapter, srt, animation_keys,
                               animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
 
         # TODO avoid or isolate more side effects
         RenderInit.do_void_inits(args_argument, loop_args, controlnet_args, anim_args, parseq_args, video_args, root)
+
+        instance.set_root_proxy(RootDataProxyWrapper.create(root))
 
         return instance

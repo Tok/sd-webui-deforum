@@ -1,6 +1,9 @@
 from dataclasses import dataclass, replace
 from typing import Any
 
+import aspectlib
+from aspectlib import Aspect
+
 
 @dataclass(frozen=True, kw_only=True)
 class RootDataProxy:
@@ -27,6 +30,8 @@ class RootDataProxy:
     # Attributes that can be replaced by the wrapper
     noise_mask: Any
     init_sample: Any
+    initial_info: Any
+    first_frame: Any
     subseed: Any
     subseed_strength: Any
     clipseg_model: Any
@@ -44,90 +49,120 @@ class RootDataProxy:
             animation_prompts=root.animation_prompts,
             noise_mask=root.noise_mask,
             init_sample=root.init_sample,
+            initial_info=root.initial_info,
+            first_frame=root.first_frame,
             subseed=root.subseed,
             subseed_strength=root.subseed_strength,
             clipseg_model=root.clipseg_model,
             seed_internal=root.seed_internal)
 
 
+
+@dataclass
 class RootDataProxyWrapper:
     """
     Provides a mutable interface to the `RootDataProxy` by replacing the
     entire proxy instance when a setter is called.
     """
+    proxy: RootDataProxy
 
     def __init__(self, root_data_proxy: RootDataProxy):
-        self._proxy = root_data_proxy
+        self.proxy = root_data_proxy
+
+    #def __setattr__(self, name: str, value: Any) -> None:
+    #    print(f"#######Setting attribute: {name}, value: {value}")
 
     @staticmethod
     def create(root: Any) -> 'RootDataProxyWrapper':
         return RootDataProxyWrapper(RootDataProxy.create(root))
 
     def device(self):
-        return self._proxy.device
+        return self.proxy.device
 
     def half_precision(self):
-        return self._proxy.half_precision
+        return self.proxy.half_precision
 
     def timestring(self):
-        return self._proxy.timestring
+        return self.proxy.timestring
+
+    #def __str__(self):
+    #    return self.proxy.timestring  # Return the timestring from the inner proxy
 
     def mask_preset_names(self):
-        return self._proxy.mask_preset_names
+        return self.proxy.mask_preset_names
 
     def frames_cache(self):
-        return self._proxy.frames_cache
+        return self.proxy.frames_cache
 
     def job_id(self):
-        return self._proxy.job_id
+        return self.proxy.job_id
 
     def animation_prompts(self):
-        return self._proxy.animation_prompts
+        return self.proxy.animation_prompts
 
     @property
     def noise_mask(self):
-        return self._proxy.noise_mask
+        return self.proxy.noise_mask
 
     @noise_mask.setter
     def noise_mask(self, value):
-        self._proxy = replace(self._proxy, noise_mask=value)
+        self.proxy = replace(self.proxy, noise_mask=value)
 
     @property
     def init_sample(self):
-        return self._proxy.init_sample
+        return self.proxy.init_sample
 
     @init_sample.setter
     def init_sample(self, value):
-        self._proxy = replace(self._proxy, init_sample=value)
+        self.proxy = replace(self.proxy, init_sample=value)
+
+    @property
+    def initial_info(self):
+        return self.proxy.initial_info
+
+    @initial_info.setter
+    def initial_info(self, value):
+        self.proxy = replace(self.proxy, initial_info=value)
+        print("###initial_info###")
+
+
+
+    @property
+    def first_frame(self):
+        return self.proxy.first_frame
+
+    @first_frame.setter
+    def first_frame(self, value):
+        self.proxy = replace(self.proxy, first_frame=value)
 
     @property
     def subseed(self):
-        return self._proxy.subseed
+        return self.proxy.subseed
 
     @subseed.setter
     def subseed(self, value):
-        self._proxy = replace(self._proxy, subseed=value)
+        self.proxy = replace(self.proxy, subseed=value)
 
     @property
     def subseed_strength(self):
-        return self._proxy.subseed_strength
+        return self.proxy.subseed_strength
 
     @subseed_strength.setter
     def subseed_strength(self, value):
-        self._proxy = replace(self._proxy, subseed_strength=value)
+        self.proxy = replace(self.proxy, subseed_strength=value)
 
     @property
     def clipseg_model(self):
-        return self._proxy.clipseg_model
+        return self.proxy.clipseg_model
 
     @clipseg_model.setter
     def clipseg_model(self, value):
-        self._proxy = replace(self._proxy, clipseg_model=value)
+        self.proxy = replace(self.proxy, clipseg_model=value)
 
     @property
     def seed_internal(self):
-        return self._proxy.seed_internal
+        return self.proxy.seed_internal
 
     @seed_internal.setter
     def seed_internal(self, value):
-        self._proxy = replace(self._proxy, seed_internal=value)
+        self.proxy = replace(self.proxy, seed_internal=value)

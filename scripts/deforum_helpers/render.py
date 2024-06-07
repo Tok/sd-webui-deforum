@@ -20,9 +20,11 @@ import random
 import time
 
 import PIL
+import aspectlib
 import cv2
 import numpy as np
 from PIL import Image, ImageOps
+from aspectlib import weave, Aspect
 from deforum_api import JobStatusTracker
 from modules import lowvram, devices, sd_hijack
 from modules.shared import opts, cmd_opts, state, sd_model
@@ -37,6 +39,7 @@ from .masks import do_overlay_mask
 from .noise import add_noise
 from .prompt import prepare_prompt
 from .rendering.data import Turbo
+#from .rendering.data.proxy.interceptor import UpdateRootProxyInterceptor
 from .rendering.data.schedule import Schedule
 from .rendering.initialization import RenderInit, StepInit
 from .rendering.util import put_if_present, put_all
@@ -73,16 +76,33 @@ from .video_audio_utilities import get_frame_name
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
     render_init = RenderInit.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
-    # print("Debug: " + str(render_init.root.proxy))
+
+    @Aspect
+    def initial_info_aspect(value):
+        render_init.root.initial_info(value)
+
+    with aspectlib.weave(root.initial_info, initial_info_aspect):
+        print("---------------------")
+
+
+    #interceptor = UpdateRootProxyInterceptor(None, True)
+    #interceptor = UpdateRootProxyInterceptor()
+    #weave(None, interceptor, 'generate.py.generate_inner', exclude=('__init__',))
+    #weave(None, interceptor, 'generate.py.generate_inner')
+    #weave(interceptor, 'generate.generate_inner')
+    #interceptor.root_proxy = render_init.root
+
+    print("########proxy: " + str(render_init.root.proxy))
+    print("########root: " + str(root))
     # TODO method is temporarily torn apart to remove args from direct access in larger execution scope.
-    run_render_animation(render_init)
+    run_render_animation(render_init, root)
 
 
 def run_render_animation_controlled(init):
     raise NotImplementedError("not implemented.")
 
 
-def run_render_animation(init):
+def run_render_animation(init, root):
     # TODO refactor to try and avoid all usage and reassignments to "init.args.args".
     # TODO try to avoid late init of "prev_flow" or isolate it together with all other moving parts.
     # TODO isolate "depth" with other moving parts
@@ -149,6 +169,8 @@ def run_render_animation(init):
     #  - 3. Actually do the render by foreaching over the steps in sequence
     while frame_idx < init.args.anim_args.max_frames:
         # Webui
+        print("########proxy: " + str(init.root.proxy))
+        print("########root: " + str(root))
 
         state.job = f"frame {frame_idx + 1}/{init.args.anim_args.max_frames}"
         state.job_no = frame_idx + 1
@@ -494,6 +516,9 @@ def run_render_animation(init):
 
         # generation
         image = call_generate(init, frame_idx, schedule)
+
+        #init.root.initial_info =  processed.info
+        init.root.first_frame = image
 
         if image is None:
             break
