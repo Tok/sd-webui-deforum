@@ -73,7 +73,6 @@ from .video_audio_utilities import get_frame_name
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
     render_init = RenderInit.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
-    # print("Debug: " + str(render_init.root.proxy))
     # TODO method is temporarily torn apart to remove args from direct access in larger execution scope.
     run_render_animation(render_init)
 
@@ -83,7 +82,6 @@ def run_render_animation_controlled(init):
 
 
 def run_render_animation(init):
-    # TODO refactor to try and avoid all usage and reassignments to "init.args.args".
     # TODO try to avoid late init of "prev_flow" or isolate it together with all other moving parts.
     # TODO isolate "depth" with other moving parts
     # TODO isolate the relevant data in +250 refs to init.args,

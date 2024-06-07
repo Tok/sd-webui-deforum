@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 
 from .data.anim import AnimationKeys, AnimationMode
-from .data.proxy.root_data_proxy import RootDataProxyWrapper
 from .data.subtitle import Srt
 from .util import MemoryUtils
+from ..args import RootArgs
 from ..deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
 from ..depth import DepthModel
 from ..generate import isJson
@@ -19,8 +19,6 @@ from ..settings import save_settings_from_animation_run
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
 class RenderInitArgs:
-    # TODO eventually this should only keep the information required to run render_animation once
-    #  for now it's just a direct reference or a copy of the actual args provided to the render_animation call.
     args: Any = None
     parseq_args: Any = None
     anim_args: Any = None
@@ -35,7 +33,6 @@ class RenderInitArgs:
         return RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
 
 
-# TODO move elsewhere
 @dataclass(init=True, frozen=True, repr=False, eq=False)
 class StepInit:
     noise: Any = None
@@ -82,7 +79,7 @@ class StepInit:
 @dataclass(init=True, frozen=True, repr=False, eq=False)
 class RenderInit:
     """The purpose of this class is to group and control all data used in render_animation"""
-    root: RootDataProxyWrapper
+    root: RootArgs
     seed: int
     args: RenderInitArgs
     parseq_adapter: Any
@@ -240,9 +237,6 @@ class RenderInit:
 
     @staticmethod
     def do_void_inits(args, loop_args, controlnet_args, anim_args, parseq_args, video_args, root):
-        # TODO all of those calls may cause a change in on of the passed args.
-        # Ideally it may be refactored so each one returns a new instance of the potentially changed args that are then
-        # attached as a property to this class to be used for one single render only.
         RenderInit.init_looper_if_active(args, loop_args)
         RenderInit.handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
         RenderInit.create_output_directory_for_the_batch(args.outdir)
@@ -262,16 +256,7 @@ class RenderInit:
         prompt_series = RenderInit.select_prompts(parseq_adapter, anim_args, animation_keys, root)
         depth_model = RenderInit.create_depth_model_and_enable_depth_map_saving_if_active(
             animation_mode, root, anim_args, args_argument)
-
-        # TODO proxy other args like this.
-        # FIXME, somethings are still missing or accessors are not behaving as they should in the wrapper.
-        # root_proxy = RootDataProxyWrapper.create(root)
-        root_proxy = root
-
-        instance = RenderInit(root_proxy, args_argument.seed, args, parseq_adapter, srt, animation_keys,
+        instance = RenderInit(root, args_argument.seed, args, parseq_adapter, srt, animation_keys,
                               animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
-
-        # TODO avoid or isolate more side effects
         RenderInit.do_void_inits(args_argument, loop_args, controlnet_args, anim_args, parseq_args, video_args, root)
-
         return instance
