@@ -6,7 +6,7 @@ from PIL import Image
 from ..util import put_all
 from ..util.utils import create_img, call_or_use_on_cond, context
 from ...load_images import get_mask, load_img
-from ...rendering.util.call_utils import call_get_mask_from_file
+from ...rendering.util.call.images import call_get_mask_from_file
 
 
 # TODO freeze?
@@ -49,7 +49,7 @@ class Mask:
             init.root.noise_mask = mask
             put_all(dicts, key, mask)
         elif is_mask_image is None and init.is_use_mask:
-            put_all(dicts, key, get_mask(init.args.args))  # TODO?: add a different default noisc mask
+            put_all(dicts, key, get_mask(init.args.args))  # TODO?: add a different default noise mask
 
     @staticmethod
     def _create_mask_image(init):

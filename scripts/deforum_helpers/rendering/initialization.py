@@ -5,12 +5,11 @@ from typing import Any
 import numexpr
 import numpy as np
 import pandas as pd
-from PIL import Image
 
 from .data.anim import AnimationKeys, AnimationMode
 from .data.subtitle import Srt
-from .util import MemoryUtils
-from .util.utils import context, put_all, create_img
+from .util import memory_utils
+from .util.utils import context
 from ..args import RootArgs
 from ..deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
 from ..depth import DepthModel
@@ -100,7 +99,7 @@ class RenderInit:
         return self.args.anim_args.animation_mode == '3D'
 
     def is_3d_with_med_or_low_vram(self):
-        return self.is_3d() and MemoryUtils.is_low_or_med_vram()
+        return self.is_3d() and memory_utils.is_low_or_med_vram()
 
     def width(self) -> int:
         return self.args.args.W
@@ -208,7 +207,7 @@ class RenderInit:
         anim_args.save_depth_maps = (anim_mode.is_predicting_depths
                                      and RenderInit.is_composite_with_depth_mask(anim_args))
         return DepthModel(root.models_path,
-                          MemoryUtils.select_depth_device(root),
+                          memory_utils.select_depth_device(root),
                           root.half_precision,
                           keep_in_vram=anim_mode.is_keep_in_vram,
                           depth_algorithm=anim_args.depth_algorithm,
