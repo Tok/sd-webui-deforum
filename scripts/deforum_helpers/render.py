@@ -16,7 +16,6 @@
 
 import gc
 import os
-import random
 
 import PIL
 import cv2
@@ -35,7 +34,7 @@ from .noise import add_noise
 from .prompt import prepare_prompt
 from .rendering.data import Turbo, Schedule, Images, Indexes, Mask
 from .rendering.initialization import RenderInit, StepInit
-from .rendering.util import opt_utils, web_ui_utils, memory_utils
+from .rendering.util import memory_utils, filename_utils, opt_utils, web_ui_utils
 from .rendering.util.call.anim import call_anim_frame_warp
 from .rendering.util.call.gen import call_generate
 from .rendering.util.call.hybrid import (
@@ -47,7 +46,6 @@ from .rendering.util.call.video_and_audio import call_render_preview, call_get_n
 from .rendering.util.utils import context
 from .save_images import save_image
 from .seed import next_seed
-from .video_audio_utilities import get_frame_name
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
@@ -211,20 +209,18 @@ def run_render_animation(init):
                 # state.current_image = Image.fromarray(cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2RGB))
 
                 # saving cadence frames
-                filename = f"{init.root.timestring}_{idx.tween.i:09}.png"
+                filename = filename_utils.tween_frame(init, idx)
                 save_path = os.path.join(init.args.args.outdir, filename)
                 cv2.imwrite(save_path, img)
 
                 if init.args.anim_args.save_depth_maps:
-                    dm_save_path = os.path.join(init.output_directory,
-                                                f"{init.root.timestring}_depth_{idx.tween.i:09}.png")
+                    dm_save_path = os.path.join(init.output_directory, filename_utils.tween_depth_frame(init, idx))
                     init.depth_model.save(dm_save_path, depth)
 
         # get color match for video outside of images.previous conditional
         if init.args.anim_args.color_coherence == 'Video Input' and init.is_hybrid_available():
             if int(idx.frame.i) % int(init.args.anim_args.color_coherence_video_every_N_frames) == 0:
-                prev_vid_img = Image.open(os.path.join(init.output_directory, 'inputframes', get_frame_name(
-                    init.args.anim_args.video_init_path) + f"{idx.frame.i:09}.jpg"))
+                prev_vid_img = Image.open(preview_video_image_path(init, idx))
                 prev_vid_img = prev_vid_img.resize(init.dimensions(), PIL.Image.LANCZOS)
                 images.color_match = np.asarray(prev_vid_img)
                 images.color_match = cv2.cvtColor(images.color_match, cv2.COLOR_RGB2BGR)
@@ -454,7 +450,7 @@ def generate_depth_maps_if_active(init):
     if init.args.anim_args.save_depth_maps:
         memory_utils.handle_vram_before_depth_map_generation(init)
         depth = init.depth_model.predict(opencv_image, init.args.anim_args.midas_weight, init.root.half_precision)
-        depth_filename = f"{init.root.timestring}_depth_{idx.frame.i:09}.png"
+        depth_filename = filename_utils.depth_frame(init, idx)
         init.depth_model.save(os.path.join(init.output_directory, depth_filename), depth)
         memory_utils.handle_vram_after_depth_map_generation(init)
         return depth
@@ -465,7 +461,7 @@ def progress_step(init, idx, turbo, opencv_image, image, depth):
     if turbo.has_steps():
         return idx.frame.i + turbo.progress_step(idx, opencv_image), depth
     else:
-        filename = f"{init.root.timestring}_{idx.frame.i:09}.png"
+        filename = filename_utils.frame(init, idx)
         save_image(image, 'PIL', filename, init.args.args, init.args.video_args, init.root)
         depth = generate_depth_maps_if_active(init)
         return idx.frame.i + 1, depth  # normal (i.e. 'non-turbo') step always increments by 1.
