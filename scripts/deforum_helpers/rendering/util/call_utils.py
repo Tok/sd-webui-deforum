@@ -14,6 +14,7 @@ from ...hybrid_video import (
     # Other hybrid functions
     hybrid_composite)
 from ...load_images import get_mask_from_file
+from ...resume import get_resume_vars
 from ...subtitle_handler import format_animation_params, write_frame_subtitle
 from ...video_audio_utilities import get_next_frame, render_preview
 
@@ -111,6 +112,13 @@ def call_get_mask_from_file(init, i, is_mask: bool = False):
 
 def call_get_mask_from_file_with_frame(init, frame):
     return get_mask_from_file(frame, init.args.args)
+
+
+# Resume
+def call_get_resume_vars(init, turbo):
+    return get_resume_vars(folder=init.args.args.outdir,
+                           timestring=init.args.anim_args.resume_timestring,
+                           cadence=turbo.steps)
 
 
 # Subtitle

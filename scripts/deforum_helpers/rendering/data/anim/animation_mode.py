@@ -23,7 +23,7 @@ class AnimationMode:
     def is_raft_active(self) -> bool:
         return self.raft_model is not None
 
-    def cleanup(self):
+    def unload_raft_and_depth_model(self):
         if self.is_predicting_depths() and not self.is_keep_in_vram:
             self.depth_model.delete_model()  # handles adabins too
         if self.is_raft_active():
