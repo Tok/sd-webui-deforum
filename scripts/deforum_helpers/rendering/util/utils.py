@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 
 
 def put_all(dictionaries, key, callable_or_value):
@@ -8,3 +9,8 @@ def put_all(dictionaries, key, callable_or_value):
 def put_if_present(dictionary, key, value):
     if value is not None:
         dictionary[key] = value
+
+
+@contextmanager
+def context(cls_or_instance):
+    yield cls_or_instance

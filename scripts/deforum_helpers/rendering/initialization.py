@@ -9,6 +9,7 @@ import pandas as pd
 from .data.anim import AnimationKeys, AnimationMode
 from .data.subtitle import Srt
 from .util import MemoryUtils
+from .util.utils import context
 from ..args import RootArgs
 from ..deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
 from ..depth import DepthModel
@@ -55,25 +56,28 @@ class StepInit:
 
     @staticmethod
     def create(deform_keys, i):
-        return StepInit(
-            deform_keys.noise_schedule_series[i],
-            deform_keys.strength_schedule_series[i],
-            deform_keys.cfg_scale_schedule_series[i],
-            deform_keys.contrast_schedule_series[i],
-            int(deform_keys.kernel_schedule_series[i]),
-            deform_keys.sigma_schedule_series[i],
-            deform_keys.amount_schedule_series[i],
-            deform_keys.threshold_schedule_series[i],
-            deform_keys.cadence_flow_factor_schedule_series[i],
-            deform_keys.redo_flow_factor_schedule_series[i], {
-                "alpha": deform_keys.hybrid_comp_alpha_schedule_series[i],
-                "mask_blend_alpha": deform_keys.hybrid_comp_mask_blend_alpha_schedule_series[i],
-                "mask_contrast": deform_keys.hybrid_comp_mask_contrast_schedule_series[i],
-                "mask_auto_contrast_cutoff_low":
-                    int(deform_keys.hybrid_comp_mask_auto_contrast_cutoff_low_schedule_series[i]),
-                "mask_auto_contrast_cutoff_high":
-                    int(deform_keys.hybrid_comp_mask_auto_contrast_cutoff_high_schedule_series[i]),
-                "flow_factor": deform_keys.hybrid_flow_factor_schedule_series[i]})
+        with context(deform_keys) as keys:
+            return StepInit(keys.noise_schedule_series[i],
+                            keys.strength_schedule_series[i],
+                            keys.cfg_scale_schedule_series[i],
+                            keys.contrast_schedule_series[i],
+                            int(keys.kernel_schedule_series[i]),
+                            keys.sigma_schedule_series[i],
+                            keys.amount_schedule_series[i],
+                            keys.threshold_schedule_series[i],
+                            keys.cadence_flow_factor_schedule_series[i],
+                            keys.redo_flow_factor_schedule_series[i],
+                            StepInit._hybrid_comp_args(keys, i))
+
+    @staticmethod
+    def _hybrid_comp_args(keys, i):
+        return {
+            "alpha": keys.hybrid_comp_alpha_schedule_series[i],
+            "mask_blend_alpha": keys.hybrid_comp_mask_blend_alpha_schedule_series[i],
+            "mask_contrast": keys.hybrid_comp_mask_contrast_schedule_series[i],
+            "mask_auto_contrast_cutoff_low": int(keys.hybrid_comp_mask_auto_contrast_cutoff_low_schedule_series[i]),
+            "mask_auto_contrast_cutoff_high": int(keys.hybrid_comp_mask_auto_contrast_cutoff_high_schedule_series[i]),
+            "flow_factor": keys.hybrid_flow_factor_schedule_series[i]}
 
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
@@ -104,7 +108,6 @@ class RenderInit:
         return self.args.args.H
 
     def dimensions(self) -> tuple[int, int]:
-        # TODO should ideally only be called once each render
         return self.width(), self.height()
 
     # TODO group hybrid stuff elsewhere
@@ -236,27 +239,24 @@ class RenderInit:
         root.timestring = anim_args.resume_timestring if anim_args.resume_from_timestring else root.timestring
 
     @staticmethod
-    def do_void_inits(args, loop_args, controlnet_args, anim_args, parseq_args, video_args, root):
-        RenderInit.init_looper_if_active(args, loop_args)
-        RenderInit.handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
-        RenderInit.create_output_directory_for_the_batch(args.outdir)
-        RenderInit.save_settings_txt(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
-        RenderInit.maybe_resume_from_timestring(anim_args, root)
-
-    @staticmethod
-    def create(args_argument, parseq_args, anim_args, video_args, controlnet_args,
+    def create(args, parseq_args, anim_args, video_args, controlnet_args,
                loop_args, opts, root) -> 'RenderInit':
-        args = RenderInitArgs(args_argument, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
-        output_directory = args_argument.outdir
-        is_use_mask = args_argument.use_mask
-        parseq_adapter = RenderInit.create_parseq_adapter(args)
-        srt = Srt.create_if_active(opts.data, output_directory, root.timestring, video_args.fps)
-        animation_keys = AnimationKeys.from_args(args, parseq_adapter, args_argument.seed)
-        animation_mode = AnimationMode.from_args(args)
-        prompt_series = RenderInit.select_prompts(parseq_adapter, anim_args, animation_keys, root)
-        depth_model = RenderInit.create_depth_model_and_enable_depth_map_saving_if_active(
-            animation_mode, root, anim_args, args_argument)
-        instance = RenderInit(root, args_argument.seed, args, parseq_adapter, srt, animation_keys,
-                              animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
-        RenderInit.do_void_inits(args_argument, loop_args, controlnet_args, anim_args, parseq_args, video_args, root)
-        return instance
+        ri_args = RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
+        output_directory = args.outdir
+        is_use_mask = args.use_mask
+        with context(RenderInit) as RI:
+            parseq_adapter = RI.create_parseq_adapter(ri_args)
+            srt = Srt.create_if_active(opts.data, output_directory, root.timestring, video_args.fps)
+            animation_keys = AnimationKeys.from_args(ri_args, parseq_adapter, args.seed)
+            animation_mode = AnimationMode.from_args(ri_args)
+            prompt_series = RI.select_prompts(parseq_adapter, anim_args, animation_keys, root)
+            depth_model = RI.create_depth_model_and_enable_depth_map_saving_if_active(
+                animation_mode, root, anim_args, args)
+            instance = RenderInit(root, args.seed, ri_args, parseq_adapter, srt, animation_keys,
+                                  animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
+            RI.init_looper_if_active(args, loop_args)
+            RI.handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
+            RI.create_output_directory_for_the_batch(args.outdir)
+            RI.save_settings_txt(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
+            RI.maybe_resume_from_timestring(anim_args, root)
+            return instance

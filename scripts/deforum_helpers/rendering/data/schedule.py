@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Optional, Any
 
+from ..util.utils import context
+
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
 class Schedule:
@@ -17,15 +19,16 @@ class Schedule:
     def create(keys, i, anim_args, args):
         # TODO typecheck keys as DeformAnimKeys or provide key collection or something
         """Create a new Schedule instance based on the provided parameters."""
-        steps = Schedule.schedule_steps(keys, i, anim_args)
-        sampler_name = Schedule.schedule_sampler(keys, i, anim_args)
-        clipskip = Schedule.schedule_clipskip(keys, i, anim_args)
-        noise_multiplier = Schedule.schedule_noise_multiplier(keys, i, anim_args)
-        eta_ddim = Schedule.schedule_ddim_eta(keys, i, anim_args)
-        eta_ancestral = Schedule.schedule_ancestral_eta(keys, i, anim_args)
-        mask = Schedule.schedule_mask(keys, i, args)  # TODO for some reason use_mask is in args instead of anim_args
-        noise_mask = Schedule.schedule_noise_mask(keys, i, anim_args)
-        return Schedule(steps, sampler_name, clipskip, noise_multiplier, eta_ddim, eta_ancestral, mask, noise_mask)
+        with context(Schedule) as S:
+            steps = S.schedule_steps(keys, i, anim_args)
+            sampler_name = S.schedule_sampler(keys, i, anim_args)
+            clipskip = S.schedule_clipskip(keys, i, anim_args)
+            noise_multiplier = S.schedule_noise_multiplier(keys, i, anim_args)
+            eta_ddim = S.schedule_ddim_eta(keys, i, anim_args)
+            eta_ancestral = S.schedule_ancestral_eta(keys, i, anim_args)
+            mask = S.schedule_mask(keys, i, args)  # TODO for some reason use_mask is in args instead of anim_args
+            noise_mask = S.schedule_noise_mask(keys, i, anim_args)
+            return Schedule(steps, sampler_name, clipskip, noise_multiplier, eta_ddim, eta_ancestral, mask, noise_mask)
 
     @staticmethod
     def _has_schedule(keys, i):

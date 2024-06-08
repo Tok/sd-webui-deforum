@@ -1,3 +1,4 @@
+from .utils import context
 from ...animation import anim_frame_warp
 from ...generate import generate
 from ...hybrid_video import (
@@ -44,27 +45,16 @@ def call_some_function(init, i, ...):
 
 # Animation:
 def call_anim_frame_warp(init, i, image, depth):
-    return anim_frame_warp(image,
-                           init.args.args,
-                           init.args.anim_args,
-                           init.animation_keys.deform_keys,
-                           i,
-                           init.depth_model,
-                           depth=depth,
-                           device=init.args.root.device,
-                           half_precision=init.args.root.half_precision)
+    with context(init.args) as ia:
+        return anim_frame_warp(image, ia.args, ia.anim_args, init.animation_keys.deform_keys, i, init.depth_model,
+                               depth=depth, device=ia.root.device, half_precision=ia.root.half_precision)
 
 
 # Generation:
 def call_generate(init, i, schedule):
-    return generate(init.args.args,
-                    init.animation_keys.deform_keys,
-                    init.args.anim_args,
-                    init.args.loop_args,
-                    init.args.controlnet_args,
-                    init.args.root,
-                    init.parseq_adapter,
-                    i, sampler_name=schedule.sampler_name)
+    with context(init.args) as ia:
+        return generate(ia.args, init.animation_keys.deform_keys, ia.anim_args, ia.loop_args, ia.controlnet_args,
+                        ia.root, init.parseq_adapter, i, sampler_name=schedule.sampler_name)
 
 
 # Hybrid Video
@@ -75,28 +65,26 @@ def call_get_flow_from_images(init, prev_image, next_image, cadence):
 
 
 def call_get_flow_for_hybrid_motion_prev(init, i, image):
-    return get_flow_for_hybrid_motion_prev(i, init.dimensions(),
-                                           init.animation_mode.hybrid_input_files,
-                                           init.animation_mode.hybrid_frame_path,
-                                           init.animation_mode.prev_flow,
-                                           image,
-                                           init.args.anim_args.hybrid_flow_method,
-                                           init.animation_mode.raft_model,
-                                           init.args.anim_args.hybrid_flow_consistency,
-                                           init.args.anim_args.hybrid_consistency_blur,
-                                           init.args.anim_args.hybrid_comp_save_extra_frames)
+    with context(init.animation_mode) as mode:
+        with context(init.args.anim_args) as aa:
+            return get_flow_for_hybrid_motion_prev(i, init.dimensions(),
+                                                   mode.hybrid_input_files,
+                                                   mode.hybrid_frame_path,
+                                                   mode.prev_flow,
+                                                   image,
+                                                   aa.hybrid_flow_method,
+                                                   mode.raft_model,
+                                                   aa.hybrid_flow_consistency,
+                                                   aa.hybrid_consistency_blur,
+                                                   aa.hybrid_comp_save_extra_frames)
 
 
 def call_get_flow_for_hybrid_motion(init, i):
-    return get_flow_for_hybrid_motion(i, init.dimensions(),
-                                      init.animation_mode.hybrid_input_files,
-                                      init.animation_mode.hybrid_frame_path,
-                                      init.animation_mode.prev_flow,
-                                      init.args.anim_args.hybrid_flow_method,
-                                      init.animation_mode.raft_model,
-                                      init.args.anim_args.hybrid_flow_consistency,
-                                      init.args.anim_args.hybrid_consistency_blur,
-                                      init.args.anim_args.hybrid_comp_save_extra_frames)
+    with context(init.animation_mode) as mode:
+        with context(init.args.anim_args) as args:
+            return get_flow_for_hybrid_motion(i, init.dimensions(), mode.hybrid_input_files, mode.hybrid_frame_path,
+                                              mode.prev_flow, args.hybrid_flow_method, mode.raft_model,
+                                              args.hybrid_flow_consistency, args.hybrid_consistency_blur, args)
 
 
 def call_get_matrix_for_hybrid_motion_prev(init, i, image):
@@ -110,12 +98,9 @@ def call_get_matrix_for_hybrid_motion(init, i):
 
 
 def call_hybrid_composite(init, i, image, hybrid_comp_schedules):
-    return hybrid_composite(init.args.args,
-                            init.args.anim_args,
-                            i, image,
-                            init.depth_model,
-                            hybrid_comp_schedules,
-                            init.args.root)
+    with context(init.args) as ia:
+        return hybrid_composite(ia.args, ia.anim_args, i, image, init.depth_model,
+                                hybrid_comp_schedules, init.args.root)
 
 
 # Load Images
@@ -140,11 +125,8 @@ def call_write_frame_subtitle(init, i, params_string, is_cadence: bool = False) 
 
 # Video & Audio
 def call_render_preview(init, i, last_preview_frame):
-    return render_preview(init.args.args,
-                          init.args.anim_args,
-                          init.args.video_args,
-                          init.args.root,
-                          i, last_preview_frame)
+    with context(init.args) as ia:
+        return render_preview(ia.args, ia.anim_args, ia.video_args, ia.root, i, last_preview_frame)
 
 
 def call_get_next_frame(init, i, video_path, is_mask: bool = False):

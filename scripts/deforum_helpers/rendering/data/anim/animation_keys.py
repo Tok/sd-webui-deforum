@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+
+from ...util.utils import context
 from ....animation_key_frames import DeformAnimKeys, LooperAnimKeys
 
 
@@ -8,14 +10,14 @@ class AnimationKeys:
     looper_keys: LooperAnimKeys
 
     def update(self, i: int):
-        self.looper_keys.use_looper = self.looper_keys.use_looper
-        self.looper_keys.imagesToKeyframe = self.looper_keys.imagesToKeyframe
-        # TODO FIXME refactor index handling and remove new boilerplate
-        self.looper_keys.imageStrength = self.looper_keys.image_strength_schedule_series[i]
-        self.looper_keys.blendFactorMax = self.looper_keys.blendFactorMax_series[i]
-        self.looper_keys.blendFactorSlope = self.looper_keys.blendFactorSlope_series[i]
-        self.looper_keys.tweeningFramesSchedule = self.looper_keys.tweening_frames_schedule_series[i]
-        self.looper_keys.colorCorrectionFactor = self.looper_keys.color_correction_factor_series[i]
+        with context(self.looper_keys) as keys:
+            keys.use_looper = keys.use_looper
+            keys.imagesToKeyframe = keys.imagesToKeyframe
+            keys.imageStrength = keys.image_strength_schedule_series[i]
+            keys.blendFactorMax = keys.blendFactorMax_series[i]
+            keys.blendFactorSlope = keys.blendFactorSlope_series[i]
+            keys.tweeningFramesSchedule = keys.tweening_frames_schedule_series[i]
+            keys.colorCorrectionFactor = keys.color_correction_factor_series[i]
 
     @staticmethod
     def choose_default_or_parseq_keys(default_keys, parseq_keys, parseq_adapter):

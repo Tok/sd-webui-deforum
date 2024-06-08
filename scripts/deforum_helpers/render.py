@@ -65,6 +65,7 @@ from .rendering.util.call_utils import (
     # Flow Functions
     call_get_flow_from_images)
 from .rendering.util.memory_utils import MemoryUtils
+from .rendering.util.utils import context
 from .resume import get_resume_vars
 from .save_images import save_image
 from .seed import next_seed
@@ -264,16 +265,17 @@ def run_render_animation(init):
 
                 # TODO cadence related transforms to be decoupled and handled in a 2nd pass
                 # do optical flow cadence after animation warping
-                if cadence_flow is not None:
-                    cadence_flow = abs_flow_to_rel_flow(cadence_flow, init.width(), init.height())
-                    cadence_flow, _ = call_anim_frame_warp(init, tween_frame_idx, cadence_flow, depth)
-                    cadence_flow_inc = rel_flow_to_abs_flow(cadence_flow, init.width(), init.height()) * tween
-                    if turbo.is_advance_prev():
-                        turbo.prev_image = image_transform_optical_flow(turbo.prev_image, cadence_flow_inc,
-                                                                        step_init.cadence_flow_factor)
-                    if turbo.is_advance_next():
-                        turbo.next_image = image_transform_optical_flow(turbo.next_image, cadence_flow_inc,
-                                                                        step_init.cadence_flow_factor)
+                with context(cadence_flow) as cf:
+                    if cf is not None:
+                        cf = abs_flow_to_rel_flow(cf, init.width(), init.height())
+                        cf, _ = call_anim_frame_warp(init, tween_frame_idx, cf, depth)
+                        cadence_flow_inc = rel_flow_to_abs_flow(cf, init.width(), init.height()) * tween
+                        if turbo.is_advance_prev():
+                            turbo.prev_image = image_transform_optical_flow(turbo.prev_image, cadence_flow_inc,
+                                                                            step_init.cadence_flow_factor)
+                        if turbo.is_advance_next():
+                            turbo.next_image = image_transform_optical_flow(turbo.next_image, cadence_flow_inc,
+                                                                            step_init.cadence_flow_factor)
 
                 turbo.prev_frame_idx = turbo.next_frame_idx = tween_frame_idx
 
@@ -327,19 +329,20 @@ def run_render_animation(init):
                 _, prev_img = call_hybrid_composite(init, frame_idx, prev_img, step_init.hybrid_comp_schedules)
 
             # hybrid video motion - warps prev_img to match motion, usually to prepare for compositing
-            if init.args.anim_args.hybrid_motion in ['Affine', 'Perspective']:
-                if init.args.anim_args.hybrid_motion_use_prev_img:
-                    matrix = call_get_matrix_for_hybrid_motion_prev(init, frame_idx - 1, prev_img)
-                else:
-                    matrix = call_get_matrix_for_hybrid_motion(init, frame_idx - 1)
-                prev_img = image_transform_ransac(prev_img, matrix, init.args.anim_args.hybrid_motion)
-            if init.args.anim_args.hybrid_motion in ['Optical Flow']:
-                if init.args.anim_args.hybrid_motion_use_prev_img:
-                    flow = call_get_flow_for_hybrid_motion_prev(init, frame_idx - 1, prev_img)
-                else:
-                    flow = call_get_flow_for_hybrid_motion(init, frame_idx - 1)
-                prev_img = image_transform_optical_flow(prev_img, flow, step_init.flow_factor())
-                init.animation_mode.prev_flow = flow
+            with context(init.args.anim_args) as aa:
+                if aa.hybrid_motion in ['Affine', 'Perspective']:
+                    if aa.hybrid_motion_use_prev_img:
+                        matrix = call_get_matrix_for_hybrid_motion_prev(init, frame_idx - 1, prev_img)
+                    else:
+                        matrix = call_get_matrix_for_hybrid_motion(init, frame_idx - 1)
+                    prev_img = image_transform_ransac(prev_img, matrix, aa.hybrid_motion)
+                if aa.hybrid_motion in ['Optical Flow']:
+                    if aa.hybrid_motion_use_prev_img:
+                        flow = call_get_flow_for_hybrid_motion_prev(init, frame_idx - 1, prev_img)
+                    else:
+                        flow = call_get_flow_for_hybrid_motion(init, frame_idx - 1)
+                    prev_img = image_transform_optical_flow(prev_img, flow, step_init.flow_factor())
+                    init.animation_mode.prev_flow = flow
 
             # do hybrid compositing after motion (normal)
             if init.is_normal_hybrid_composite():
@@ -377,12 +380,11 @@ def run_render_animation(init):
                                                                noise_mask_vals,
                                                                Image.fromarray(cv2.cvtColor(contrast_image,
                                                                                             cv2.COLOR_BGR2RGB)))
-            noised_image = add_noise(contrast_image, step_init.noise, init.args.args.seed,
-                                     init.args.anim_args.noise_type,
-                                     (init.args.anim_args.perlin_w, init.args.anim_args.perlin_h,
-                                      init.args.anim_args.perlin_octaves,
-                                      init.args.anim_args.perlin_persistence),
-                                     init.root.noise_mask, init.args.args.invert_mask)
+
+            with context(init.args.anim_args) as aa:
+                noised_image = add_noise(contrast_image, step_init.noise, init.args.args.seed, aa.noise_type,
+                                         (aa.perlin_w, aa.perlin_h, aa.perlin_octaves, aa.perlin_persistence),
+                                         init.root.noise_mask, init.args.args.invert_mask)
 
             # use transformed previous frame as init for current
             init.args.args.use_init = True
@@ -398,47 +400,44 @@ def run_render_animation(init):
         # grab prompt for current frame
         init.args.args.prompt = init.prompt_series[frame_idx]
 
-        if init.args.args.seed_behavior == 'schedule' or init.parseq_adapter.manages_seed():
-            init.args.args.seed = int(init.animation_keys.deform_keys.seed_schedule_series[frame_idx])
+        with context(init.args) as ia:
+            with context(init.animation_keys.deform_keys) as keys:
+                if ia.args.seed_behavior == 'schedule' or init.parseq_adapter.manages_seed():
+                    ia.args.seed = int(keys.seed_schedule_series[frame_idx])
+                if ia.anim_args.enable_checkpoint_scheduling:
+                    ia.args.checkpoint = keys.checkpoint_schedule_series[frame_idx]
+                else:
+                    ia.args.checkpoint = None
 
-        if init.args.anim_args.enable_checkpoint_scheduling:
-            init.args.args.checkpoint = init.animation_keys.deform_keys.checkpoint_schedule_series[frame_idx]
-        else:
-            init.args.args.checkpoint = None
+                # SubSeed scheduling
+                if ia.anim_args.enable_subseed_scheduling:
+                    init.root.subseed = int(keys.subseed_schedule_series[frame_idx])
+                    init.root.subseed_strength = float(keys.subseed_strength_schedule_series[frame_idx])
+                if init.parseq_adapter.manages_seed():
+                    init.args.anim_args.enable_subseed_scheduling = True
+                    init.root.subseed = int(keys.subseed_schedule_series[frame_idx])
+                    init.root.subseed_strength = keys.subseed_strength_schedule_series[frame_idx]
 
-        # SubSeed scheduling
-        if init.args.anim_args.enable_subseed_scheduling:
-            init.root.subseed = int(init.animation_keys.deform_keys.subseed_schedule_series[frame_idx])
-            init.root.subseed_strength = float(
-                init.animation_keys.deform_keys.subseed_strength_schedule_series[frame_idx])
+            # set value back into the prompt - prepare and report prompt and seed
+            ia.args.prompt = prepare_prompt(ia.args.prompt, ia.anim_args.max_frames, ia.args.seed, frame_idx)
+            # grab init image for current frame
+            if init.animation_mode.has_video_input:
+                init_frame = call_get_next_frame(init, frame_idx, ia.anim_args.video_init_path)
+                print(f"Using video init frame {init_frame}")
+                ia.args.init_image = init_frame
+                ia.args.init_image_box = None  # init_image_box not used in this case
+                ia.args.strength = max(0.0, min(1.0, step_init.strength))
+            if ia.anim_args.use_mask_video:
+                mask_init_frame = call_get_next_frame(init, frame_idx, ia.anim_args.video_mask_path, True)
+                temp_mask = call_get_mask_from_file_with_frame(init, mask_init_frame)
+                ia.args.mask_file = temp_mask
+                init.root.noise_mask = temp_mask
+                mask_vals['video_mask'] = temp_mask
 
-        if init.parseq_adapter.manages_seed():
-            init.args.anim_args.enable_subseed_scheduling = True
-            init.root.subseed = int(init.animation_keys.deform_keys.subseed_schedule_series[frame_idx])
-            init.root.subseed_strength = init.animation_keys.deform_keys.subseed_strength_schedule_series[frame_idx]
-
-        # set value back into the prompt - prepare and report prompt and seed
-        init.args.args.prompt = prepare_prompt(init.args.args.prompt, init.args.anim_args.max_frames,
-                                               init.args.args.seed, frame_idx)
-
-        # grab init image for current frame
-        if init.animation_mode.has_video_input:
-            init_frame = call_get_next_frame(init, frame_idx, init.args.anim_args.video_init_path)
-            print(f"Using video init frame {init_frame}")
-            init.args.args.init_image = init_frame
-            init.args.args.init_image_box = None  # init_image_box not used in this case
-            init.args.args.strength = max(0.0, min(1.0, step_init.strength))
-        if init.args.anim_args.use_mask_video:
-            mask_init_frame = call_get_next_frame(init, frame_idx, init.args.anim_args.video_mask_path, True)
-            temp_mask = call_get_mask_from_file_with_frame(init, mask_init_frame)
-            init.args.args.mask_file = temp_mask
-            init.root.noise_mask = temp_mask
-            mask_vals['video_mask'] = temp_mask
-
-        if init.args.args.use_mask:
-            init.args.args.mask_image = compose_mask_with_check(init.root, init.args.args, schedule.mask_seq,
-                                                                mask_vals, init.root.init_sample) \
-                if init.root.init_sample is not None else None  # we need it only after the first frame anyway
+            if ia.args.use_mask:
+                ia.args.mask_image = compose_mask_with_check(init.root, ia.args, schedule.mask_seq,
+                                                             mask_vals, init.root.init_sample) \
+                    if init.root.init_sample is not None else None  # we need it only after the first frame anyway
 
         init.animation_keys.update(frame_idx)
         setup_opts(init, schedule)
@@ -456,20 +455,21 @@ def run_render_animation(init):
         # optical flow redo before generation
         if optical_flow_redo_generation != 'None' and prev_img is not None and step_init.strength > 0:
             stored_seed = init.args.args.seed
-            init.args.args.seed = random.randint(0, 2 ** 32 - 1)
-            print(
-                f"Optical flow redo is diffusing and warping using {optical_flow_redo_generation} and seed {init.args.args.seed} optical flow before generation.")
+            init.args.args.seed = random.randint(0, 2 ** 32 - 1)  # TODO move elsewhere
+            msg_start = "Optical flow redo is diffusing and warping using"
+            msg_end = "optical flow before generation."
+            print(f"{msg_start} {optical_flow_redo_generation} and seed {init.args.args.seed} {msg_end}")
 
-            disposable_image = call_generate(init, frame_idx, schedule)
-            disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
-            disposable_flow = call_get_flow_from_images(init, prev_img, disposable_image, optical_flow_redo_generation)
-            disposable_image = cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB)
-            disposable_image = image_transform_optical_flow(disposable_image, disposable_flow,
-                                                            step_init.redo_flow_factor)
-            init.args.args.seed = stored_seed
-            init.root.init_sample = Image.fromarray(disposable_image)
-            del (disposable_image, disposable_flow, stored_seed)
-            gc.collect()
+            with context(call_generate(init, frame_idx, schedule)) as img:
+                img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                disposable_flow = call_get_flow_from_images(init, prev_img, img, optical_flow_redo_generation)
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                img = image_transform_optical_flow(img, disposable_flow, step_init.redo_flow_factor)
+                init.args.args.seed = stored_seed  # TODO check if (or make) unnecessary and group seeds
+                init.root.init_sample = Image.fromarray(img)
+                disposable_image = img  # TODO refactor
+                del (img, disposable_flow, stored_seed)
+                gc.collect()
 
         # diffusion redo
         if (int(init.args.anim_args.diffusion_redo) > 0
@@ -478,7 +478,7 @@ def run_render_animation(init):
             stored_seed = init.args.args.seed
             for n in range(0, int(init.args.anim_args.diffusion_redo)):
                 print(f"Redo generation {n + 1} of {int(init.args.anim_args.diffusion_redo)} before final generation")
-                init.args.args.seed = random.randint(0, 2 ** 32 - 1)
+                init.args.args.seed = random.randint(0, 2 ** 32 - 1)  # TODO move elsewhere
                 disposable_image = call_generate(init, frame_idx, schedule)
                 disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
                 # color match on last one only
@@ -487,8 +487,8 @@ def run_render_animation(init):
                                                        init.args.anim_args.color_coherence)
                 init.args.args.seed = stored_seed
                 init.root.init_sample = Image.fromarray(cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB))
-            del (disposable_image, stored_seed)  # FIXME disposable_image might be referenced before assignment.
-            gc.collect()  # TODO try to eventually kick the gc only once at the end of every generation or iteration.
+            del (disposable_image, stored_seed)
+            gc.collect()  # TODO try to eventually kick the gc only once at the end of every generation, iteration.
 
         # generation
         image = call_generate(init, frame_idx, schedule)
