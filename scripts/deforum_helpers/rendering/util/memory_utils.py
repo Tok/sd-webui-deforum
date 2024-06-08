@@ -1,7 +1,7 @@
 from modules.shared import cmd_opts  # keep readonly
 
 
-class MemoryUtils():
+class MemoryUtils:
     # Don't put any variables here, it's meant for static methods only.
 
     @staticmethod

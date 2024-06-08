@@ -29,25 +29,47 @@ from modules.shared import opts, cmd_opts, state, sd_model
 
 from .colors import maintain_colors
 from .composable_masks import compose_mask_with_check
-from .generate import generate
-from .hybrid_video import (hybrid_composite, get_matrix_for_hybrid_motion, get_matrix_for_hybrid_motion_prev,
-                           get_flow_for_hybrid_motion, get_flow_for_hybrid_motion_prev, image_transform_ransac,
-                           image_transform_optical_flow, get_flow_from_images, abs_flow_to_rel_flow,
-                           rel_flow_to_abs_flow)
+from .hybrid_video import (image_transform_ransac, image_transform_optical_flow,
+                           abs_flow_to_rel_flow, rel_flow_to_abs_flow)
 from .image_sharpening import unsharp_mask
-from .load_images import get_mask, load_img, load_image, get_mask_from_file
+from .load_images import get_mask, load_img, load_image
 from .masks import do_overlay_mask
 from .noise import add_noise
 from .prompt import prepare_prompt
+from .rendering.data import Turbo
 from .rendering.data.schedule import Schedule
-from .rendering.initialization import RenderInit
-from .rendering.util import put_if_present, call_anim_frame_warp
+from .rendering.initialization import RenderInit, StepInit
+from .rendering.util import put_if_present, put_all
+from .rendering.util.call_utils import (
+    # Animation Functions
+    call_anim_frame_warp,
+    call_format_animation_params,
+    call_get_next_frame,
+    call_write_frame_subtitle,
+
+    # Generation and Rendering
+    call_generate,
+    call_render_preview,
+
+    # Hybrid Motion Functions
+    call_get_flow_for_hybrid_motion,
+    call_get_flow_for_hybrid_motion_prev,
+    call_get_matrix_for_hybrid_motion,
+    call_get_matrix_for_hybrid_motion_prev,
+    call_hybrid_composite,
+
+    # Mask Functions
+    call_get_mask_from_file,
+    call_get_mask_from_file_with_frame,
+
+    # Flow Functions
+    call_get_flow_from_images)
 from .rendering.util.memory_utils import MemoryUtils
+from .rendering.util.utils import context
 from .resume import get_resume_vars
 from .save_images import save_image
 from .seed import next_seed
-from .subtitle_handler import write_frame_subtitle, format_animation_params
-from .video_audio_utilities import get_frame_name, get_next_frame, render_preview
+from .video_audio_utilities import get_frame_name
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
@@ -56,19 +78,18 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
     run_render_animation(render_init)
 
 
+def run_render_animation_controlled(init):
+    raise NotImplementedError("not implemented.")
+
+
 def run_render_animation(init):
-    # TODO refactor to try and avoid all usage and reassignments to "init.args.args".
     # TODO try to avoid late init of "prev_flow" or isolate it together with all other moving parts.
     # TODO isolate "depth" with other moving parts
-    # TODO cleanup and find potential side effects in 31 refs to init.args.root
     # TODO isolate the relevant data in +250 refs to init.args,
     #  move that stuff to init and eventually try to drop init.args
     #  see dimensions() in RenderInit for an example of delegating the relevant stuff from args.
 
-    # state for interpolating between diffusion steps
-    turbo_steps = 1 if init.has_video_input() else init.cadence()
-    turbo_prev_image, turbo_prev_frame_idx = None, 0
-    turbo_next_image, turbo_next_frame_idx = None, 0
+    turbo = Turbo.create(init)  # state for interpolating between diffusion steps
 
     # initialize vars
     prev_img = None
@@ -81,12 +102,9 @@ def run_render_animation(init):
         prev_frame, next_frame, prev_img, next_img = get_resume_vars(
             folder=init.args.args.outdir,
             timestring=init.args.anim_args.resume_timestring,
-            cadence=turbo_steps)
+            cadence=turbo.steps)
 
-        # set up turbo step vars
-        if turbo_steps > 1:
-            turbo_prev_image, turbo_prev_frame_idx = prev_img, prev_frame
-            turbo_next_image, turbo_next_frame_idx = next_img, next_frame
+        turbo.set_up_step_vars(prev_img, prev_frame, next_img, next_frame)
 
         # advance start_frame to next frame
         start_frame = next_frame + 1
@@ -97,41 +115,19 @@ def run_render_animation(init):
     mask_vals = {}
     noise_mask_vals = {}
 
-    mask_vals['everywhere'] = Image.new('1', init.dimensions(), 1)
-    noise_mask_vals['everywhere'] = Image.new('1', init.dimensions(), 1)
+    put_all([mask_vals, noise_mask_vals], 'everywhere',
+            lambda: Image.new('1', init.dimensions(), 1))
 
     mask_image = None
 
-    if (init.args.args.use_init
-            and ((init.args.args.init_image != None
-            and init.args.args.init_image != '')
-            or init.args.args.init_image_box != None)):
+    if init.is_using_init_image_or_box():
         _, mask_image = load_img(init.args.args.init_image,
                                  init.args.args.init_image_box,
                                  shape=init.dimensions(),
                                  use_alpha_as_mask=init.args.args.use_alpha_as_mask)
-        mask_vals['video_mask'] = mask_image
-        noise_mask_vals['video_mask'] = mask_image
+        put_all([mask_vals, noise_mask_vals], 'video_mask', mask_image)
 
-    # Grab the first frame masks since they wont be provided until next frame
-    # Video mask overrides the init image mask, also, won't be searching for init_mask if use_mask_video is set
-    # Made to solve https://github.com/deforum-art/deforum-for-automatic1111-webui/issues/386
-    if init.args.anim_args.use_mask_video:
-        init.args.args.mask_file = get_mask_from_file(
-            get_next_frame(init.output_directory, init.args.anim_args.video_mask_path, frame_idx, True),
-            init.args.args)
-        init.args.root.noise_mask = get_mask_from_file(
-            get_next_frame(init.output_directory, init.args.anim_args.video_mask_path, frame_idx, True),
-            init.args.args)
-        mask_vals['video_mask'] = get_mask_from_file(
-            get_next_frame(init.output_directory, init.args.anim_args.video_mask_path, frame_idx, True),
-            init.args.args)
-        noise_mask_vals['video_mask'] = get_mask_from_file(
-            get_next_frame(init.output_directory, init.args.anim_args.video_mask_path, frame_idx, True),
-            init.args.args)
-    elif mask_image is None and init.is_use_mask:
-        mask_vals['video_mask'] = get_mask(init.args.args)
-        noise_mask_vals['video_mask'] = get_mask(init.args.args)  # TODO?: add a different default noisc mask
+    assign_masks(init, frame_idx, mask_image, [mask_vals, noise_mask_vals])
 
     # get color match for 'Image' color coherence only once, before loop
     if init.args.anim_args.color_coherence == 'Image':
@@ -145,8 +141,10 @@ def run_render_animation(init):
 
     # TODO create a Step class in rendering.data with all the iteration specific info,
     #  then eventually try to replace this while loop with functions that:
-    #  - 1. Create a collection of Steps with all the required info that is already known before we enter the iteration.
-    #  - 2. Transform and process the steps however needed (i.e. space out or reassign turbo frames etc.)
+    #  - 1. Create a collection of Steps with all the required info that is already known or can be calculated
+    #       before we enter the iteration.
+    #  - 2. Transform and reprocess the steps however needed (i.e. space out or reassign turbo frames etc.)
+    #       TODO cadence framing and logic that is currently working off-index may eventually be moved into a 2nd pass.
     #  - 3. Actually do the render by foreaching over the steps in sequence
     while frame_idx < init.args.anim_args.max_frames:
         # Webui
@@ -163,27 +161,7 @@ def run_render_animation(init):
 
         print(f"\033[36mAnimation frame: \033[0m{frame_idx}/{init.args.anim_args.max_frames}  ")
 
-        # TODO move this to the new key collection
-        noise = init.animation_keys.deform_keys.noise_schedule_series[frame_idx]
-        strength = init.animation_keys.deform_keys.strength_schedule_series[frame_idx]
-        scale = init.animation_keys.deform_keys.cfg_scale_schedule_series[frame_idx]
-        contrast = init.animation_keys.deform_keys.contrast_schedule_series[frame_idx]
-        kernel = int(init.animation_keys.deform_keys.kernel_schedule_series[frame_idx])
-        sigma = init.animation_keys.deform_keys.sigma_schedule_series[frame_idx]
-        amount = init.animation_keys.deform_keys.amount_schedule_series[frame_idx]
-        threshold = init.animation_keys.deform_keys.threshold_schedule_series[frame_idx]
-        cadence_flow_factor = init.animation_keys.deform_keys.cadence_flow_factor_schedule_series[frame_idx]
-        redo_flow_factor = init.animation_keys.deform_keys.redo_flow_factor_schedule_series[frame_idx]
-        hybrid_comp_schedules = {
-            "alpha": init.animation_keys.deform_keys.hybrid_comp_alpha_schedule_series[frame_idx],
-            "mask_blend_alpha": init.animation_keys.deform_keys.hybrid_comp_mask_blend_alpha_schedule_series[frame_idx],
-            "mask_contrast": init.animation_keys.deform_keys.hybrid_comp_mask_contrast_schedule_series[frame_idx],
-            "mask_auto_contrast_cutoff_low": int(
-                init.animation_keys.deform_keys.hybrid_comp_mask_auto_contrast_cutoff_low_schedule_series[frame_idx]),
-            "mask_auto_contrast_cutoff_high": int(
-                init.animation_keys.deform_keys.hybrid_comp_mask_auto_contrast_cutoff_high_schedule_series[frame_idx]),
-            "flow_factor": init.animation_keys.deform_keys.hybrid_flow_factor_schedule_series[frame_idx]
-        }
+        step_init = StepInit.create(init.animation_keys.deform_keys, frame_idx)
 
         # TODO eventually move schedule into new Step class
         schedule = Schedule.create(init.animation_keys.deform_keys, frame_idx, init.args.anim_args, init.args.args)
@@ -199,19 +177,16 @@ def run_render_animation(init):
             sd_hijack.model_hijack.undo_hijack(sd_model)
             devices.torch_gc()
             if init.animation_mode.is_predicting_depths:
-                init.animation_mode.depth_model.to(init.args.root.device)
+                init.animation_mode.depth_model.to(init.root.device)
 
-        if turbo_steps == 1 and opts.data.get("deforum_save_gen_info_as_srt"):
+        if turbo.is_first_step_with_subtitles(init):
             params_to_print = opts.data.get("deforum_save_gen_info_as_srt_params", ['Seed'])
-            params_string = format_animation_params(init.animation_keys.deform_keys, init.prompt_series, frame_idx,
-                                                    params_to_print)
-            write_frame_subtitle(init.srt.filename, frame_idx, init.srt.frame_duration,
-                                 f"F#: {frame_idx}; Cadence: false; Seed: {init.args.args.seed}; {params_string}")
+            params_string = call_format_animation_params(init, frame_idx, params_to_print)
+            call_write_frame_subtitle(init, frame_idx, params_string)
             params_string = None  # FIXME ??
 
-        # emit in-between frames
-        if turbo_steps > 1:
-            tween_frame_start_idx = max(start_frame, frame_idx - turbo_steps)
+        if turbo.is_emit_in_between_frames():
+            tween_frame_start_idx = max(start_frame, frame_idx - turbo.steps)
             cadence_flow = None
             for tween_frame_idx in range(tween_frame_start_idx, frame_idx):
                 # update progress during cadence
@@ -219,128 +194,95 @@ def run_render_animation(init):
                 state.job_no = tween_frame_idx + 1
                 # cadence vars
                 tween = float(tween_frame_idx - tween_frame_start_idx + 1) / float(frame_idx - tween_frame_start_idx)
-                advance_prev = turbo_prev_image is not None and tween_frame_idx > turbo_prev_frame_idx
-                advance_next = tween_frame_idx > turbo_next_frame_idx
 
                 # optical flow cadence setup before animation warping
                 if (init.args.anim_args.animation_mode in ['2D', '3D']
                         and init.args.anim_args.optical_flow_cadence != 'None'):
                     if init.animation_keys.deform_keys.strength_schedule_series[tween_frame_start_idx] > 0:
-                        if cadence_flow is None and turbo_prev_image is not None and turbo_next_image is not None:
-                            cadence_flow = get_flow_from_images(turbo_prev_image, turbo_next_image,
-                                                                init.args.anim_args.optical_flow_cadence,
-                                                                init.animation_mode.raft_model) / 2
-                            turbo_next_image = image_transform_optical_flow(turbo_next_image, -cadence_flow, 1)
+                        if cadence_flow is None and turbo.prev_image is not None and turbo.next_image is not None:
+                            cadence_flow = call_get_flow_from_images(init, turbo.prev_image, turbo.next_image,
+                                                                     init.args.anim_args.optical_flow_cadence) / 2
+                            turbo.next_image = image_transform_optical_flow(turbo.next_image, -cadence_flow, 1)
 
                 if opts.data.get("deforum_save_gen_info_as_srt"):
                     params_to_print = opts.data.get("deforum_save_gen_info_as_srt_params", ['Seed'])
-                    params_string = format_animation_params(init.animation_keys.deform_keys,
-                                                            init.prompt_series,
-                                                            tween_frame_idx,
-                                                            params_to_print)
-                    write_frame_subtitle(init.srt.filename, tween_frame_idx, init.srt.frame_duration,
-                                         f"F#: {tween_frame_idx}; Cadence: {tween < 1.0}; Seed: {init.args.args.seed}; {params_string}")
+                    params_string = call_format_animation_params(init, tween_frame_idx, params_to_print)
+                    call_write_frame_subtitle(init, tween_frame_idx, params_string, tween < 1.0)
                     params_string = None
 
                 print(
                     f"Creating in-between {'' if cadence_flow is None else init.args.anim_args.optical_flow_cadence + ' optical flow '}cadence frame: {tween_frame_idx}; tween:{tween:0.2f};")
 
                 if init.depth_model is not None:
-                    assert (turbo_next_image is not None)
-                    depth = init.depth_model.predict(turbo_next_image, init.args.anim_args.midas_weight,
-                                                     init.args.root.half_precision)
+                    assert (turbo.next_image is not None)
+                    depth = init.depth_model.predict(turbo.next_image, init.args.anim_args.midas_weight,
+                                                     init.root.half_precision)
 
-                if advance_prev:
-                    turbo_prev_image, _ = call_anim_frame_warp(init, turbo_prev_image, tween_frame_idx, depth)
-                if advance_next:
-                    turbo_next_image, _ = call_anim_frame_warp(init, turbo_next_image, tween_frame_idx, depth)
+                # TODO collect images
+                if turbo.is_advance_prev(tween_frame_idx):
+                    turbo.prev_image, _ = call_anim_frame_warp(init, tween_frame_idx, turbo.prev_image, depth)
+                if turbo.is_advance_next(tween_frame_idx):
+                    turbo.prev_image, _ = call_anim_frame_warp(init, tween_frame_idx, turbo.next_image, depth)
 
-
-                # hybrid video motion - warps turbo_prev_image or turbo_next_image to match motion
+                # hybrid video motion - warps turbo.prev_image or turbo.next_image to match motion
                 if tween_frame_idx > 0:
                     if init.args.anim_args.hybrid_motion in ['Affine', 'Perspective']:
                         if init.args.anim_args.hybrid_motion_use_prev_img:
-                            matrix = get_matrix_for_hybrid_motion_prev(tween_frame_idx - 1,
-                                                                       init.dimensions(),
-                                                                       init.animation_mode.hybrid_input_files, prev_img,
-                                                                       init.args.anim_args.hybrid_motion)
-                            if advance_prev:
-                                turbo_prev_image = image_transform_ransac(turbo_prev_image, matrix,
+                            matrix = call_get_matrix_for_hybrid_motion_prev(init, tween_frame_idx - 1, prev_img)
+                            if turbo.is_advance_prev(tween_frame_idx):
+                                turbo.prev_image = image_transform_ransac(turbo.prev_image, matrix,
                                                                           init.args.anim_args.hybrid_motion)
-                            if advance_next:
-                                turbo_next_image = image_transform_ransac(turbo_next_image, matrix,
+                            if turbo.is_advance_next(tween_frame_idx):
+                                turbo.next_image = image_transform_ransac(turbo.next_image, matrix,
                                                                           init.args.anim_args.hybrid_motion)
                         else:
-                            matrix = get_matrix_for_hybrid_motion(tween_frame_idx - 1,
-                                                                  init.dimensions(),
-                                                                  init.animation_mode.hybrid_input_files,
-                                                                  init.args.anim_args.hybrid_motion)
-                            if advance_prev:
-                                turbo_prev_image = image_transform_ransac(turbo_prev_image, matrix,
+                            matrix = call_get_matrix_for_hybrid_motion(init, tween_frame_idx - 1)
+                            if turbo.is_advance_prev(tween_frame_idx):
+                                turbo.prev_image = image_transform_ransac(turbo.prev_image, matrix,
                                                                           init.args.anim_args.hybrid_motion)
-                            if advance_next:
-                                turbo_next_image = image_transform_ransac(turbo_next_image, matrix,
+                            if turbo.is_advance_next(tween_frame_idx):
+                                turbo.next_image = image_transform_ransac(turbo.next_image, matrix,
                                                                           init.args.anim_args.hybrid_motion)
                     if init.args.anim_args.hybrid_motion in ['Optical Flow']:
                         if init.args.anim_args.hybrid_motion_use_prev_img:
-                            flow = get_flow_for_hybrid_motion_prev(tween_frame_idx - 1,
-                                                                   init.dimensions(),
-                                                                   init.animation_mode.hybrid_input_files,
-                                                                   init.animation_mode.hybrid_frame_path,
-                                                                   init.animation_mode.prev_flow,
-                                                                   prev_img,
-                                                                   init.args.anim_args.hybrid_flow_method,
-                                                                   init.animation_mode.raft_model,
-                                                                   init.args.anim_args.hybrid_flow_consistency,
-                                                                   init.args.anim_args.hybrid_consistency_blur,
-                                                                   init.args.anim_args.hybrid_comp_save_extra_frames)
-                            if advance_prev:
-                                turbo_prev_image = image_transform_optical_flow(turbo_prev_image, flow,
-                                                                                hybrid_comp_schedules['flow_factor'])
-                            if advance_next:
-                                turbo_next_image = image_transform_optical_flow(turbo_next_image, flow,
-                                                                                hybrid_comp_schedules['flow_factor'])
-                            init.animation_mode.prev_flow = flow  # FIXME shouldn't
+                            flow = call_get_flow_for_hybrid_motion_prev(init, tween_frame_idx - 1, prev_img)
+                            if turbo.is_advance_prev(tween_frame_idx):
+                                turbo.prev_image = image_transform_optical_flow(turbo.prev_image, flow,
+                                                                                step_init.flow_factor())
+                            if turbo.is_advance_next(tween_frame_idx):
+                                turbo.next_image = image_transform_optical_flow(turbo.next_image, flow,
+                                                                                step_init.flow_factor())
+                            init.animation_mode.prev_flow = flow
                         else:
-                            flow = get_flow_for_hybrid_motion(tween_frame_idx - 1, init.dimensions(),
-                                                              init.animation_mode.hybrid_input_files,
-                                                              init.animation_mode.hybrid_frame_path,
-                                                              init.animation_mode.prev_flow,
-                                                              init.args.anim_args.hybrid_flow_method,
-                                                              init.animation_mode.raft_model,
-                                                              init.args.anim_args.hybrid_flow_consistency,
-                                                              init.args.anim_args.hybrid_consistency_blur,
-                                                              init.args.anim_args.hybrid_comp_save_extra_frames)
-                            if advance_prev:
-                                turbo_prev_image = image_transform_optical_flow(turbo_prev_image, flow,
-                                                                                hybrid_comp_schedules['flow_factor'])
-                            if advance_next:
-                                turbo_next_image = image_transform_optical_flow(turbo_next_image, flow,
-                                                                                hybrid_comp_schedules['flow_factor'])
+                            flow = call_get_flow_for_hybrid_motion(init, tween_frame_idx - 1)
+                            if turbo.is_advance_prev(tween_frame_idx):
+                                turbo.prev_image = image_transform_optical_flow(turbo.prev_image, flow,
+                                                                                step_init.flow_factor())
+                            if turbo.is_advance_next(tween_frame_idx):
+                                turbo.next_image = image_transform_optical_flow(turbo.next_image, flow,
+                                                                                step_init.flow_factor())
                             init.animation_mode.prev_flow = flow
 
+                # TODO cadence related transforms to be decoupled and handled in a 2nd pass
                 # do optical flow cadence after animation warping
-                if cadence_flow is not None:
-                    cadence_flow = abs_flow_to_rel_flow(cadence_flow,
-                                                        init.width(),
-                                                        init.height())
-                    cadence_flow, _ = call_anim_frame_warp(init, cadence_flow, tween_frame_idx, depth)
-                    cadence_flow_inc = rel_flow_to_abs_flow(cadence_flow,
-                                                            init.dimensions().width(),
-                                                            init.dimensions().height()) * tween
-                    if advance_prev:
-                        turbo_prev_image = image_transform_optical_flow(turbo_prev_image, cadence_flow_inc,
-                                                                        cadence_flow_factor)
-                    if advance_next:
-                        turbo_next_image = image_transform_optical_flow(turbo_next_image, cadence_flow_inc,
-                                                                        cadence_flow_factor)
+                with context(cadence_flow) as cf:
+                    if cf is not None:
+                        cf = abs_flow_to_rel_flow(cf, init.width(), init.height())
+                        cf, _ = call_anim_frame_warp(init, tween_frame_idx, cf, depth)
+                        cadence_flow_inc = rel_flow_to_abs_flow(cf, init.width(), init.height()) * tween
+                        if turbo.is_advance_prev():
+                            turbo.prev_image = image_transform_optical_flow(turbo.prev_image, cadence_flow_inc,
+                                                                            step_init.cadence_flow_factor)
+                        if turbo.is_advance_next():
+                            turbo.next_image = image_transform_optical_flow(turbo.next_image, cadence_flow_inc,
+                                                                            step_init.cadence_flow_factor)
 
-                turbo_prev_frame_idx = turbo_next_frame_idx = tween_frame_idx
+                turbo.prev_frame_idx = turbo.next_frame_idx = tween_frame_idx
 
-                if turbo_prev_image is not None and tween < 1.0:
-                    img = turbo_prev_image * (1.0 - tween) + turbo_next_image * tween
+                if turbo.prev_image is not None and tween < 1.0:
+                    img = turbo.prev_image * (1.0 - tween) + turbo.next_image * tween
                 else:
-                    img = turbo_next_image
+                    img = turbo.next_image
 
                 # intercept and override to grayscale
                 if init.args.anim_args.color_force_grayscale:
@@ -358,12 +300,13 @@ def run_render_animation(init):
                 # state.current_image = Image.fromarray(cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2RGB))
 
                 # saving cadence frames
-                filename = f"{init.args.root.timestring}_{tween_frame_idx:09}.png"
+                filename = f"{init.root.timestring}_{tween_frame_idx:09}.png"
                 save_path = os.path.join(init.args.args.outdir, filename)
                 cv2.imwrite(save_path, img)
 
                 if init.args.anim_args.save_depth_maps:
-                    dm_save_path = os.path.join(init.output_directory, f"{init.args.root.timestring}_depth_{tween_frame_idx:09}.png")
+                    dm_save_path = os.path.join(init.output_directory,
+                                                f"{init.root.timestring}_depth_{tween_frame_idx:09}.png")
                     init.depth_model.save(dm_save_path, depth)
 
         # get color match for video outside of prev_img conditional
@@ -378,64 +321,33 @@ def run_render_animation(init):
         # after 1st frame, prev_img exists
         if prev_img is not None:
             # apply transforms to previous frame
-            prev_img, depth = call_anim_frame_warp(init, prev_img, frame_idx, None)
+            prev_img, depth = call_anim_frame_warp(init, frame_idx, prev_img, None)
 
             # do hybrid compositing before motion
             if init.is_hybrid_composite_before_motion():
                 # TODO test, returned args seem unchanged, so might as well be ignored here (renamed to _)
-                _, prev_img = hybrid_composite(init.args.args,
-                                               init.args.anim_args,
-                                               frame_idx,
-                                               prev_img,
-                                               init.depth_model,
-                                               hybrid_comp_schedules,
-                                               init.args.root)
+                _, prev_img = call_hybrid_composite(init, frame_idx, prev_img, step_init.hybrid_comp_schedules)
 
             # hybrid video motion - warps prev_img to match motion, usually to prepare for compositing
-            if init.args.anim_args.hybrid_motion in ['Affine', 'Perspective']:
-                if init.args.anim_args.hybrid_motion_use_prev_img:
-                    matrix = get_matrix_for_hybrid_motion_prev(frame_idx - 1,
-                                                               init.dimensions(),
-                                                               init.animation_mode.hybrid_input_files, prev_img,
-                                                               init.args.anim_args.hybrid_motion)
-                else:
-                    matrix = get_matrix_for_hybrid_motion(frame_idx - 1,
-                                                          init.dimensions(),
-                                                          init.animation_mode.hybrid_input_files,
-                                                          init.args.anim_args.hybrid_motion)
-                prev_img = image_transform_ransac(prev_img, matrix, init.args.anim_args.hybrid_motion)
-            if init.args.anim_args.hybrid_motion in ['Optical Flow']:
-                if init.args.anim_args.hybrid_motion_use_prev_img:
-                    flow = get_flow_for_hybrid_motion_prev(frame_idx - 1,
-                                                           init.dimensions(),
-                                                           init.animation_mode.hybrid_input_files,
-                                                           init.animation_mode.hybrid_frame_path,
-                                                           init.animation_mode.prev_flow, prev_img,
-                                                           init.args.anim_args.hybrid_flow_method,
-                                                           init.animation_mode.raft_model,
-                                                           init.args.anim_args.hybrid_flow_consistency,
-                                                           init.args.anim_args.hybrid_consistency_blur,
-                                                           init.args.anim_args.hybrid_comp_save_extra_frames)
-                else:
-                    flow = get_flow_for_hybrid_motion(frame_idx - 1,
-                                                      init.dimensions(),
-                                                      init.animation_mode.hybrid_input_files,
-                                                      init.animation_mode.hybrid_frame_path,
-                                                      init.animation_mode.prev_flow,
-                                                      init.args.anim_args.hybrid_flow_method,
-                                                      init.animation_mode.raft_model,
-                                                      init.args.anim_args.hybrid_flow_consistency,
-                                                      init.args.anim_args.hybrid_consistency_blur,
-                                                      init.args.anim_args.hybrid_comp_save_extra_frames)
-                prev_img = image_transform_optical_flow(prev_img, flow, hybrid_comp_schedules['flow_factor'])
-                init.animation_mode.prev_flow = flow
+            with context(init.args.anim_args) as aa:
+                if aa.hybrid_motion in ['Affine', 'Perspective']:
+                    if aa.hybrid_motion_use_prev_img:
+                        matrix = call_get_matrix_for_hybrid_motion_prev(init, frame_idx - 1, prev_img)
+                    else:
+                        matrix = call_get_matrix_for_hybrid_motion(init, frame_idx - 1)
+                    prev_img = image_transform_ransac(prev_img, matrix, aa.hybrid_motion)
+                if aa.hybrid_motion in ['Optical Flow']:
+                    if aa.hybrid_motion_use_prev_img:
+                        flow = call_get_flow_for_hybrid_motion_prev(init, frame_idx - 1, prev_img)
+                    else:
+                        flow = call_get_flow_for_hybrid_motion(init, frame_idx - 1)
+                    prev_img = image_transform_optical_flow(prev_img, flow, step_init.flow_factor())
+                    init.animation_mode.prev_flow = flow
 
             # do hybrid compositing after motion (normal)
             if init.is_normal_hybrid_composite():
                 # TODO test, returned args seem unchanged, so might as well be ignored here (renamed to _)
-                _, prev_img = hybrid_composite(init.args.args, init.args.anim_args, frame_idx, prev_img,
-                                               init.depth_model, hybrid_comp_schedules, init.args.root)
-
+                _, prev_img = call_hybrid_composite(init, frame_idx, prev_img, step_init.hybrid_comp_schedules)
             # apply color matching
             if init.has_color_coherence():
                 if color_match_sample is None:
@@ -449,31 +361,37 @@ def run_render_animation(init):
                 prev_img = cv2.cvtColor(prev_img, cv2.COLOR_GRAY2BGR)
 
             # apply scaling
-            contrast_image = (prev_img * contrast).round().astype(np.uint8)
+            contrast_image = (prev_img * step_init.contrast).round().astype(np.uint8)
             # anti-blur
-            if amount > 0:
-                contrast_image = unsharp_mask(contrast_image, (kernel, kernel), sigma, amount, threshold,
+            if step_init.amount > 0:
+                step_init.kernel_size()
+                contrast_image = unsharp_mask(contrast_image,
+                                              (step_init.kernel, step_init.kernel),
+                                              step_init.sigma,
+                                              step_init.amount,
+                                              step_init.threshold,
                                               mask_image if init.args.args.use_mask else None)
             # apply frame noising
             if init.args.args.use_mask or init.args.anim_args.use_noise_mask:
-                init.args.root.noise_mask = compose_mask_with_check(init.args.root,
-                                                                    init.args.args,
-                                                                    noise_mask_seq, # FIXME might be ref'd b4 assignment
-                                                                    noise_mask_vals,
-                                                                    Image.fromarray(cv2.cvtColor(contrast_image,
-                                                                                                 cv2.COLOR_BGR2RGB)))
-            noised_image = add_noise(contrast_image, noise, init.args.args.seed, init.args.anim_args.noise_type,
-                                     (init.args.anim_args.perlin_w, init.args.anim_args.perlin_h,
-                                      init.args.anim_args.perlin_octaves,
-                                      init.args.anim_args.perlin_persistence),
-                                     init.args.root.noise_mask, init.args.args.invert_mask)
+                init.root.noise_mask = compose_mask_with_check(init.root,
+                                                               init.args.args,
+                                                               noise_mask_seq,
+                                                               # FIXME might be ref'd b4 assignment
+                                                               noise_mask_vals,
+                                                               Image.fromarray(cv2.cvtColor(contrast_image,
+                                                                                            cv2.COLOR_BGR2RGB)))
+
+            with context(init.args.anim_args) as aa:
+                noised_image = add_noise(contrast_image, step_init.noise, init.args.args.seed, aa.noise_type,
+                                         (aa.perlin_w, aa.perlin_h, aa.perlin_octaves, aa.perlin_persistence),
+                                         init.root.noise_mask, init.args.args.invert_mask)
 
             # use transformed previous frame as init for current
             init.args.args.use_init = True
-            init.args.root.init_sample = Image.fromarray(cv2.cvtColor(noised_image, cv2.COLOR_BGR2RGB))
-            init.args.args.strength = max(0.0, min(1.0, strength))
+            init.root.init_sample = Image.fromarray(cv2.cvtColor(noised_image, cv2.COLOR_BGR2RGB))
+            init.args.args.strength = max(0.0, min(1.0, step_init.strength))
 
-        init.args.args.scale = scale
+        init.args.args.scale = step_init.scale
 
         # Pix2Pix Image CFG Scale - does *nothing* with non pix2pix checkpoints
         init.args.args.pix2pix_img_cfg_scale = float(
@@ -482,51 +400,44 @@ def run_render_animation(init):
         # grab prompt for current frame
         init.args.args.prompt = init.prompt_series[frame_idx]
 
-        if init.args.args.seed_behavior == 'schedule' or init.parseq_adapter.manages_seed():
-            init.args.args.seed = int(init.animation_keys.deform_keys.seed_schedule_series[frame_idx])
+        with context(init.args) as ia:
+            with context(init.animation_keys.deform_keys) as keys:
+                if ia.args.seed_behavior == 'schedule' or init.parseq_adapter.manages_seed():
+                    ia.args.seed = int(keys.seed_schedule_series[frame_idx])
+                if ia.anim_args.enable_checkpoint_scheduling:
+                    ia.args.checkpoint = keys.checkpoint_schedule_series[frame_idx]
+                else:
+                    ia.args.checkpoint = None
 
-        if init.args.anim_args.enable_checkpoint_scheduling:
-            init.args.args.checkpoint = init.animation_keys.deform_keys.checkpoint_schedule_series[frame_idx]
-        else:
-            init.args.args.checkpoint = None
+                # SubSeed scheduling
+                if ia.anim_args.enable_subseed_scheduling:
+                    init.root.subseed = int(keys.subseed_schedule_series[frame_idx])
+                    init.root.subseed_strength = float(keys.subseed_strength_schedule_series[frame_idx])
+                if init.parseq_adapter.manages_seed():
+                    init.args.anim_args.enable_subseed_scheduling = True
+                    init.root.subseed = int(keys.subseed_schedule_series[frame_idx])
+                    init.root.subseed_strength = keys.subseed_strength_schedule_series[frame_idx]
 
-        # SubSeed scheduling
-        if init.args.anim_args.enable_subseed_scheduling:
-            init.args.root.subseed = int(init.animation_keys.deform_keys.subseed_schedule_series[frame_idx])
-            init.args.root.subseed_strength = float(
-                init.animation_keys.deform_keys.subseed_strength_schedule_series[frame_idx])
+            # set value back into the prompt - prepare and report prompt and seed
+            ia.args.prompt = prepare_prompt(ia.args.prompt, ia.anim_args.max_frames, ia.args.seed, frame_idx)
+            # grab init image for current frame
+            if init.animation_mode.has_video_input:
+                init_frame = call_get_next_frame(init, frame_idx, ia.anim_args.video_init_path)
+                print(f"Using video init frame {init_frame}")
+                ia.args.init_image = init_frame
+                ia.args.init_image_box = None  # init_image_box not used in this case
+                ia.args.strength = max(0.0, min(1.0, step_init.strength))
+            if ia.anim_args.use_mask_video:
+                mask_init_frame = call_get_next_frame(init, frame_idx, ia.anim_args.video_mask_path, True)
+                temp_mask = call_get_mask_from_file_with_frame(init, mask_init_frame)
+                ia.args.mask_file = temp_mask
+                init.root.noise_mask = temp_mask
+                mask_vals['video_mask'] = temp_mask
 
-        if init.parseq_adapter.manages_seed():
-            init.args.anim_args.enable_subseed_scheduling = True
-            init.args.root.subseed = int(init.animation_keys.deform_keys.subseed_schedule_series[frame_idx])
-            init.args.root.subseed_strength = init.animation_keys.deform_keys.subseed_strength_schedule_series[
-                frame_idx]
-
-        # set value back into the prompt - prepare and report prompt and seed
-        init.args.args.prompt = prepare_prompt(init.args.args.prompt, init.args.anim_args.max_frames,
-                                               init.args.args.seed, frame_idx)
-
-        # grab init image for current frame
-        if init.animation_mode.has_video_input:
-            init_frame = get_next_frame(init.output_directory, init.args.anim_args.video_init_path,
-                                        frame_idx, False)
-            print(f"Using video init frame {init_frame}")
-            init.args.args.init_image = init_frame
-            init.args.args.init_image_box = None  # init_image_box not used in this case
-            init.args.args.strength = max(0.0, min(1.0, strength))
-        if init.args.anim_args.use_mask_video:
-            mask_init_frame = get_next_frame(init.output_directory, init.args.anim_args.video_mask_path,
-                                             frame_idx, True)
-            temp_mask = get_mask_from_file(mask_init_frame, init.args.args)
-            init.args.args.mask_file = temp_mask
-            init.args.root.noise_mask = temp_mask
-            mask_vals['video_mask'] = temp_mask
-
-        if init.args.args.use_mask:
-            init.args.args.mask_image = compose_mask_with_check(init.args.root, init.args.args,
-                                                                schedule.mask_seq, mask_vals,
-                                                                init.args.root.init_sample) \
-                if init.args.root.init_sample is not None else None  # we need it only after the first frame anyway
+            if ia.args.use_mask:
+                ia.args.mask_image = compose_mask_with_check(init.root, ia.args, schedule.mask_seq,
+                                                             mask_vals, init.root.init_sample) \
+                    if init.root.init_sample is not None else None  # we need it only after the first frame anyway
 
         init.animation_keys.update(frame_idx)
         setup_opts(init, schedule)
@@ -537,65 +448,50 @@ def run_render_animation(init):
             lowvram.setup_for_low_vram(sd_model, cmd_opts.medvram)
             sd_hijack.model_hijack.hijack(sd_model)
 
+        # TODO try init early, also see "call_get_flow_from_images"
         optical_flow_redo_generation = init.args.anim_args.optical_flow_redo_generation \
             if not init.args.args.motion_preview_mode else 'None'
 
         # optical flow redo before generation
-        if optical_flow_redo_generation != 'None' and prev_img is not None and strength > 0:
+        if optical_flow_redo_generation != 'None' and prev_img is not None and step_init.strength > 0:
             stored_seed = init.args.args.seed
-            init.args.args.seed = random.randint(0, 2 ** 32 - 1)
-            print(
-                f"Optical flow redo is diffusing and warping using {optical_flow_redo_generation} and seed {init.args.args.seed} optical flow before generation.")
+            init.args.args.seed = random.randint(0, 2 ** 32 - 1)  # TODO move elsewhere
+            msg_start = "Optical flow redo is diffusing and warping using"
+            msg_end = "optical flow before generation."
+            print(f"{msg_start} {optical_flow_redo_generation} and seed {init.args.args.seed} {msg_end}")
 
-            disposable_image = generate(init.args.args,
-                                        init.animation_keys.deform_keys,
-                                        init.args.anim_args,
-                                        init.args.loop_args,
-                                        init.args.controlnet_args,
-                                        init.args.root,
-                                        init.parseq_adapter,
-                                        frame_idx, sampler_name=schedule.sampler_name)
-            disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
-            disposable_flow = get_flow_from_images(prev_img, disposable_image, optical_flow_redo_generation,
-                                                   init.animation_mode.raft_model)
-            disposable_image = cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB)
-            disposable_image = image_transform_optical_flow(disposable_image, disposable_flow, redo_flow_factor)
-            init.args.args.seed = stored_seed
-            init.args.root.init_sample = Image.fromarray(disposable_image)
-            del (disposable_image, disposable_flow, stored_seed)
-            gc.collect()
+            with context(call_generate(init, frame_idx, schedule)) as img:
+                img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                disposable_flow = call_get_flow_from_images(init, prev_img, img, optical_flow_redo_generation)
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                img = image_transform_optical_flow(img, disposable_flow, step_init.redo_flow_factor)
+                init.args.args.seed = stored_seed  # TODO check if (or make) unnecessary and group seeds
+                init.root.init_sample = Image.fromarray(img)
+                disposable_image = img  # TODO refactor
+                del (img, disposable_flow, stored_seed)
+                gc.collect()
 
         # diffusion redo
         if (int(init.args.anim_args.diffusion_redo) > 0
-                and prev_img is not None and strength > 0
+                and prev_img is not None and step_init.strength > 0
                 and not init.args.args.motion_preview_mode):
             stored_seed = init.args.args.seed
             for n in range(0, int(init.args.anim_args.diffusion_redo)):
                 print(f"Redo generation {n + 1} of {int(init.args.anim_args.diffusion_redo)} before final generation")
-                init.args.args.seed = random.randint(0, 2 ** 32 - 1)
-                disposable_image = generate(init.args.args,
-                                            init.animation_keys.deform_keys,
-                                            init.args.anim_args,
-                                            init.args.loop_args,
-                                            init.args.controlnet_args,
-                                            init.args.root,
-                                            init.parseq_adapter,
-                                            frame_idx, sampler_name=schedule.sampler_name)
+                init.args.args.seed = random.randint(0, 2 ** 32 - 1)  # TODO move elsewhere
+                disposable_image = call_generate(init, frame_idx, schedule)
                 disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
                 # color match on last one only
                 if n == int(init.args.anim_args.diffusion_redo):
                     disposable_image = maintain_colors(prev_img, color_match_sample,
                                                        init.args.anim_args.color_coherence)
                 init.args.args.seed = stored_seed
-                init.args.root.init_sample = Image.fromarray(cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB))
-            del (disposable_image, stored_seed)  # FIXME disposable_image might be referenced before assignment.
-            gc.collect()  # TODO try to eventually kick the gc only once at the end of every generation or iteration.
+                init.root.init_sample = Image.fromarray(cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB))
+            del (disposable_image, stored_seed)
+            gc.collect()  # TODO try to eventually kick the gc only once at the end of every generation, iteration.
 
         # generation
-        image = generate(init.args.args, init.animation_keys.deform_keys, init.args.anim_args,
-                         init.args.loop_args, init.args.controlnet_args,
-                         init.args.root, init.parseq_adapter, frame_idx,
-                         sampler_name=schedule.sampler_name)
+        image = call_generate(init, frame_idx, schedule)
 
         if image is None:
             break
@@ -604,8 +500,7 @@ def run_render_animation(init):
         if frame_idx > 0 and init.is_hybrid_composite_after_generation():
             temp_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
             # TODO test, returned args seem unchanged, so might as well be ignored here (renamed to _)
-            _, temp_image_2 = hybrid_composite(init.args.args, init.args.anim_args, frame_idx, temp_image,
-                                               init.depth_model, hybrid_comp_schedules, init.args.root)
+            _, temp_image_2 = call_hybrid_composite(init, frame_idx, temp_image, step_init.hybrid_comp_schedules)
             image = Image.fromarray(cv2.cvtColor(temp_image_2, cv2.COLOR_BGR2RGB))
 
         # color matching on first frame is after generation, color match was collected earlier,
@@ -626,7 +521,7 @@ def run_render_animation(init):
 
         # on strength 0, set color match to generation
         if (((not init.args.anim_args.legacy_colormatch and not init.args.args.use_init)
-             or (init.args.anim_args.legacy_colormatch and strength == 0))
+             or (init.args.anim_args.legacy_colormatch and step_init.strength == 0))
                 and init.args.anim_args.color_coherence not in ['Image', 'Video Input']):
             color_match_sample = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
 
@@ -634,13 +529,13 @@ def run_render_animation(init):
         if not init.animation_mode.has_video_input:
             prev_img = opencv_image
 
-        if turbo_steps > 1:
-            turbo_prev_image, turbo_prev_frame_idx = turbo_next_image, turbo_next_frame_idx
-            turbo_next_image, turbo_next_frame_idx = opencv_image, frame_idx
-            frame_idx += turbo_steps
+        if turbo.steps > 1:
+            turbo.prev_image, turbo.prev_frame_idx = turbo.next_image, turbo.next_frame_idx
+            turbo.next_image, turbo.next_frame_idx = opencv_image, frame_idx
+            frame_idx += turbo.steps
         else:
-            filename = f"{init.args.root.timestring}_{frame_idx:09}.png"
-            save_image(image, 'PIL', filename, init.args.args, init.args.video_args, init.args.root)
+            filename = f"{init.root.timestring}_{frame_idx:09}.png"
+            save_image(image, 'PIL', filename, init.args.args, init.args.video_args, init.root)
 
             if init.args.anim_args.save_depth_maps:
                 # TODO move all depth related stuff to new class. (also see RenderInit)
@@ -648,11 +543,11 @@ def run_render_animation(init):
                     lowvram.send_everything_to_cpu()
                     sd_hijack.model_hijack.undo_hijack(sd_model)
                     devices.torch_gc()
-                    init.depth_model.to(init.args.root.device)
+                    init.depth_model.to(init.root.device)
                 depth = init.depth_model.predict(opencv_image, init.args.anim_args.midas_weight,
-                                                 init.args.root.half_precision)
+                                                 init.root.half_precision)
                 init.depth_model.save(
-                    os.path.join(init.output_directory, f"{init.args.root.timestring}_depth_{frame_idx:09}.png"), depth)
+                    os.path.join(init.output_directory, f"{init.root.timestring}_depth_{frame_idx:09}.png"), depth)
                 if MemoryUtils.is_low_or_med_vram():
                     init.depth_model.to('cpu')
                     devices.torch_gc()
@@ -660,33 +555,44 @@ def run_render_animation(init):
                     sd_hijack.model_hijack.hijack(sd_model)
             frame_idx += 1
 
-        # TODO isolate more state....
-        last_preview_frame = progress_and_make_preview(state,
-                                                       image,
-                                                       init.args.args,
-                                                       init.args.anim_args,
-                                                       init.args.video_args,
-                                                       init.args.root,
-                                                       frame_idx,
-                                                       last_preview_frame)
-        update_tracker(init.args.root, frame_idx, init.args.anim_args)
+        last_preview_frame = progress_and_make_preview(init, image, frame_idx, state, last_preview_frame)
+        update_tracker(init.root, frame_idx, init.args.anim_args)
         init.animation_mode.cleanup()
 
 
+def assign_masks(init, i, is_mask_image, dicts):
+    # Grab the first frame masks since they wont be provided until next frame
+    # Video mask overrides the init image mask, also, won't be searching for init_mask if use_mask_video is set
+    # Made to solve https://github.com/deforum-art/deforum-for-automatic1111-webui/issues/386
+    key = 'video_mask'
+    if init.args.anim_args.use_mask_video:
+        mask = call_get_mask_from_file(init, i, True)
+        init.args.args.mask_file = mask
+        init.root.noise_mask = mask
+        put_all(dicts, key, mask)
+    elif is_mask_image is None and init.is_use_mask:
+        put_all(dicts, key, get_mask(init.args.args))  # TODO?: add a different default noisc mask
+
+
 def setup_opts(init, schedule):
+    data = init.args.opts.data
     if init.has_img2img_fix_steps():
         # disable "with img2img do exactly x steps" from general setting, as it *ruins* deforum animations
-        init.opts.data["img2img_fix_steps"] = False
-    put_if_present(init.args.opts.data, "CLIP_stop_at_last_layers", schedule.clipskip)
-    put_if_present(init.args.opts.data, "initial_noise_multiplier", schedule.noise_multiplier)
-    put_if_present(init.args.opts.data, "eta_ddim", schedule.eta_ddim)
-    put_if_present(init.args.opts.data, "eta_ancestral", schedule.eta_ancestral)
+        data["img2img_fix_steps"] = False
+    put_if_present(data, "CLIP_stop_at_last_layers", schedule.clipskip)
+    put_if_present(data, "initial_noise_multiplier", schedule.noise_multiplier)
+    put_if_present(data, "eta_ddim", schedule.eta_ddim)
+    put_if_present(data, "eta_ancestral", schedule.eta_ancestral)
 
 
-def progress_and_make_preview(state, image, args, anim_args, video_args, root, frame_idx, last_preview_frame):
+def progress_and_make_preview(init, image, frame_idx, state, last_preview_frame):
     state.assign_current_image(image)
-    args.seed = next_seed(args, root)
-    return render_preview(args, anim_args, video_args, root, frame_idx, last_preview_frame)
+
+    # may reassign init.args.args and/or root.seed_internal # FIXME?
+    init.args.args.seed = next_seed(init.args.args, init.root)  # TODO refactor assignment
+    # init.seed = init.args.args.seed  # TODO group all seeds and sub-seeds
+
+    return call_render_preview(init, frame_idx, last_preview_frame)
 
 
 def update_tracker(root, frame_idx, anim_args):

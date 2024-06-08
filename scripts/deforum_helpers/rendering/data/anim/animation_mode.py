@@ -1,13 +1,13 @@
-import dataclasses
 import os
 
+from dataclasses import dataclass
 from typing import Any
 from ....hybrid_video import hybrid_generation
 from ....RAFT import RAFT
 
 
 # TODO FIXME find a way to assign prev_flow right away, then set frozen=true again, otherwise move prev_flow elsewhere.
-@dataclasses.dataclass(init=True, frozen=False, repr=False, eq=False)
+@dataclass(init=True, frozen=False, repr=False, eq=False)
 class AnimationMode:
     has_video_input: bool = False
     hybrid_input_files: Any = None
@@ -31,20 +31,20 @@ class AnimationMode:
 
     @staticmethod
     def _has_video_input(anim_args) -> bool:
-        return AnimationMode._is_2d_or_3d_mode(anim_args) and AnimationMode._is_using_hybris_frames(anim_args)
+        return AnimationMode._is_2d_or_3d_mode(anim_args) and AnimationMode._is_using_hybrid_frames(anim_args)
 
     @staticmethod
     def _is_2d_or_3d_mode(anim_args):
         return anim_args.animation_mode in ['2D', '3D']
 
     @staticmethod
-    def _is_using_hybris_frames(anim_args):
+    def _is_using_hybrid_frames(anim_args):
         return (anim_args.hybrid_composite != 'None'
                 or anim_args.hybrid_motion in ['Affine', 'Perspective', 'Optical Flow'])
 
     @staticmethod
-    def _is_needing_hybris_frames(anim_args):
-        return AnimationMode._is_2d_or_3d_mode(anim_args) and AnimationMode._is_using_hybris_frames(anim_args)
+    def _is_needing_hybrid_frames(anim_args):
+        return AnimationMode._is_2d_or_3d_mode(anim_args) and AnimationMode._is_using_hybrid_frames(anim_args)
 
     @staticmethod
     def _is_load_depth_model_for_3d(args, anim_args):
@@ -72,7 +72,7 @@ class AnimationMode:
     def from_args(step_args):
         init_hybrid_input_files: Any = None
         init_hybrid_frame_path = ""
-        if AnimationMode._is_needing_hybris_frames(step_args.anim_args):
+        if AnimationMode._is_needing_hybrid_frames(step_args.anim_args):
             # handle hybrid video generation
             # hybrid_generation may cause side effects on args and anim_args
             _, __, init_hybrid_input_files = hybrid_generation(step_args.args, step_args.anim_args, step_args.root)
