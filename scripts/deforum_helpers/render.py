@@ -32,12 +32,13 @@ from .composable_masks import compose_mask_with_check
 from .hybrid_video import (image_transform_ransac, image_transform_optical_flow,
                            abs_flow_to_rel_flow, rel_flow_to_abs_flow)
 from .image_sharpening import unsharp_mask
-from .load_images import get_mask, load_img, load_image
+from .load_images import load_image
 from .masks import do_overlay_mask
 from .noise import add_noise
 from .prompt import prepare_prompt
 from .rendering.data import Turbo
 from .rendering.data.schedule import Schedule
+from .rendering.data.mask import Mask
 from .rendering.initialization import RenderInit, StepInit
 from .rendering.util import put_if_present, put_all
 from .rendering.util.call_utils import (
@@ -66,7 +67,6 @@ from .rendering.util.call_utils import (
     call_get_flow_from_images)
 from .rendering.util.memory_utils import MemoryUtils
 from .rendering.util.utils import context
-from .resume import get_resume_vars
 from .save_images import save_image
 from .seed import next_seed
 from .video_audio_utilities import get_frame_name
@@ -90,44 +90,11 @@ def run_render_animation(init):
     #  see dimensions() in RenderInit for an example of delegating the relevant stuff from args.
 
     turbo = Turbo.create(init)  # state for interpolating between diffusion steps
-
-    # initialize vars
     prev_img = None
     color_match_sample = None
-    start_frame = 0
-
-    # resume animation (requires at least two frames - see function)
-    if init.is_resuming_from_timestring():
-        # determine last frame and frame to start on
-        prev_frame, next_frame, prev_img, next_img = get_resume_vars(
-            folder=init.args.args.outdir,
-            timestring=init.args.anim_args.resume_timestring,
-            cadence=turbo.steps)
-
-        turbo.set_up_step_vars(prev_img, prev_frame, next_img, next_frame)
-
-        # advance start_frame to next frame
-        start_frame = next_frame + 1
-
+    start_frame = turbo.find_start(init, turbo)
     frame_idx = start_frame
-
-    # reset the mask vals as they are overwritten in the compose_mask algorithm
-    mask_vals = {}
-    noise_mask_vals = {}
-
-    put_all([mask_vals, noise_mask_vals], 'everywhere',
-            lambda: Image.new('1', init.dimensions(), 1))
-
-    mask_image = None
-
-    if init.is_using_init_image_or_box():
-        _, mask_image = load_img(init.args.args.init_image,
-                                 init.args.args.init_image_box,
-                                 shape=init.dimensions(),
-                                 use_alpha_as_mask=init.args.args.use_alpha_as_mask)
-        put_all([mask_vals, noise_mask_vals], 'video_mask', mask_image)
-
-    assign_masks(init, frame_idx, mask_image, [mask_vals, noise_mask_vals])
+    mask = Mask.create(init, frame_idx)  # reset the mask vals as they are overwritten in the compose_mask algorithm
 
     # get color match for 'Image' color coherence only once, before loop
     if init.args.anim_args.color_coherence == 'Image':
@@ -370,14 +337,14 @@ def run_render_animation(init):
                                               step_init.sigma,
                                               step_init.amount,
                                               step_init.threshold,
-                                              mask_image if init.args.args.use_mask else None)
+                                              mask.image if init.args.args.use_mask else None)
             # apply frame noising
             if init.args.args.use_mask or init.args.anim_args.use_noise_mask:
                 init.root.noise_mask = compose_mask_with_check(init.root,
                                                                init.args.args,
                                                                noise_mask_seq,
                                                                # FIXME might be ref'd b4 assignment
-                                                               noise_mask_vals,
+                                                               mask.noise_vals,
                                                                Image.fromarray(cv2.cvtColor(contrast_image,
                                                                                             cv2.COLOR_BGR2RGB)))
 
@@ -432,11 +399,12 @@ def run_render_animation(init):
                 temp_mask = call_get_mask_from_file_with_frame(init, mask_init_frame)
                 ia.args.mask_file = temp_mask
                 init.root.noise_mask = temp_mask
-                mask_vals['video_mask'] = temp_mask
+                mask.vals['video_mask'] = temp_mask
 
             if ia.args.use_mask:
+                # TODO figure why this is different from mask.image
                 ia.args.mask_image = compose_mask_with_check(init.root, ia.args, schedule.mask_seq,
-                                                             mask_vals, init.root.init_sample) \
+                                                             mask.vals, init.root.init_sample) \
                     if init.root.init_sample is not None else None  # we need it only after the first frame anyway
 
         init.animation_keys.update(frame_idx)
@@ -558,20 +526,6 @@ def run_render_animation(init):
         last_preview_frame = progress_and_make_preview(init, image, frame_idx, state, last_preview_frame)
         update_tracker(init.root, frame_idx, init.args.anim_args)
         init.animation_mode.cleanup()
-
-
-def assign_masks(init, i, is_mask_image, dicts):
-    # Grab the first frame masks since they wont be provided until next frame
-    # Video mask overrides the init image mask, also, won't be searching for init_mask if use_mask_video is set
-    # Made to solve https://github.com/deforum-art/deforum-for-automatic1111-webui/issues/386
-    key = 'video_mask'
-    if init.args.anim_args.use_mask_video:
-        mask = call_get_mask_from_file(init, i, True)
-        init.args.args.mask_file = mask
-        init.root.noise_mask = mask
-        put_all(dicts, key, mask)
-    elif is_mask_image is None and init.is_use_mask:
-        put_all(dicts, key, get_mask(init.args.args))  # TODO?: add a different default noisc mask
 
 
 def setup_opts(init, schedule):

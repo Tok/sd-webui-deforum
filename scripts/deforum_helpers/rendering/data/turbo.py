@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .subtitle import Srt
+from ...resume import get_resume_vars
 
 
 # TODO freeze..
@@ -18,10 +19,21 @@ class Turbo:
         steps = 1 if init.has_video_input() else init.cadence()
         return Turbo(steps, None, 0, None, 0)
 
-    def set_up_step_vars(self, prev_img, prev_frame, next_img, next_frame):
+    def _set_up_step_vars(self, init, turbo):
+        # determine last frame and frame to start on
+        prev_frame, next_frame, prev_img, next_img = get_resume_vars(
+            folder=init.args.args.outdir,
+            timestring=init.args.anim_args.resume_timestring,
+            cadence=turbo.steps)
         if self.steps > 1:
             self.prev_image, self.prev_frame_idx = prev_img, prev_frame
             self.next_image, self.next_frame_idx = next_img, next_frame
+        return next_frame
+
+    def find_start(self, init, turbo):
+        """Maybe resume animation (requires at least two frames - see function)."""
+        # set start_frame to next frame
+        return self._set_up_step_vars(init, turbo) + 1 if init.is_resuming_from_timestring() else 0
 
     def _has_prev_image(self):
         return self.prev_image is not None
