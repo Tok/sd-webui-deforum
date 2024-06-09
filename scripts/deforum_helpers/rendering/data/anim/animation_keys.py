@@ -20,14 +20,16 @@ class AnimationKeys:
             keys.colorCorrectionFactor = keys.color_correction_factor_series[i]
 
     @staticmethod
-    def choose_default_or_parseq_keys(default_keys, parseq_keys, parseq_adapter):
+    def _choose_default_or_parseq_keys(default_keys, parseq_keys, parseq_adapter):
         return default_keys if not parseq_adapter.use_parseq else parseq_keys
 
     @staticmethod
     def from_args(step_args, parseq_adapter, seed):
-        # Parseq keys are decorated, see ParseqAinmKeysDecorator and ParseqLooperKeysDecorator
-        return AnimationKeys(
-            AnimationKeys.choose_default_or_parseq_keys(DeformAnimKeys(step_args.anim_args, seed),
-                                                        parseq_adapter.anim_keys, parseq_adapter),
-            AnimationKeys.choose_default_or_parseq_keys(LooperAnimKeys(step_args.loop_args, step_args.anim_args, seed),
-                                                        parseq_adapter.looper_keys, parseq_adapter))
+        ada = parseq_adapter
+
+        def _choose(default_keys):
+            return AnimationKeys._choose_default_or_parseq_keys(default_keys, ada.anim_keys, ada)
+
+        # Parseq keys are decorated, see ParseqAnimKeysDecorator and ParseqLooperKeysDecorator
+        return AnimationKeys(_choose(DeformAnimKeys(step_args.anim_args, seed)),
+                             _choose(LooperAnimKeys(step_args.loop_args, step_args.anim_args, seed)))

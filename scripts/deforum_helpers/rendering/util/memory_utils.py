@@ -47,3 +47,7 @@ def handle_vram_after_depth_map_generation(init):
 
 def select_depth_device(root):
     return 'cpu' if is_low_or_med_vram() else root.device
+
+
+def keep_3d_models_in_vram(step_args):
+    return step_args.opts.data.get("deforum_keep_3d_models_in_vram", False)

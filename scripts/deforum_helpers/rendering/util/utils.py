@@ -31,6 +31,11 @@ def context(resource):
     yield resource
 
 
+@contextmanager
+def combo_context(*resources):
+    yield resources
+
+
 def put_all(dictionaries, key, value):
     return list(map(lambda d: {**d, key: value}, dictionaries))
 
