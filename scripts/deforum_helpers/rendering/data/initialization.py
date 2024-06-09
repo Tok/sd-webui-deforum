@@ -2,9 +2,11 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+import cv2
 import numexpr
 import numpy as np
 import pandas as pd
+from PIL import Image
 
 from .anim import AnimationKeys, AnimationMode
 from .subtitle import Srt
@@ -125,6 +127,44 @@ class RenderInit:
 
     def is_using_init_image_or_box(self) -> bool:
         return self.args.args.use_init and self._has_init_image_or_box()
+
+    def update_some_args_for_current_progression_step(self, step, noised_image):
+        # use transformed previous frame as init for current
+        self.args.args.use_init = True
+        self.root.init_sample = Image.fromarray(cv2.cvtColor(noised_image, cv2.COLOR_BGR2RGB))
+        self.args.args.strength = max(0.0, min(1.0, step.init.strength))
+
+    def update_some_args_for_current_step(self, indexes, step):
+        i = indexes.frame.i
+        keys = self.animation_keys.deform_keys
+        # Pix2Pix Image CFG Scale - does *nothing* with non pix2pix checkpoints
+        self.args.args.pix2pix_img_cfg_scale = float(keys.pix2pix_img_cfg_scale_series[i])
+        self.args.args.prompt = self.prompt_series[i]  # grab prompt for current frame
+        self.args.args.scale = step.init.scale
+
+    def update_seed_and_checkpoint_for_current_step(self, indexes):
+        i = indexes.frame.i
+        keys = self.animation_keys.deform_keys
+        is_seed_scheduled = self.args.args.seed_behavior == 'schedule'
+        is_seed_managed = self.parseq_adapter.manages_seed()
+        is_seed_scheduled_or_managed = is_seed_scheduled or is_seed_managed
+        if is_seed_scheduled_or_managed:
+            self.args.args.seed = int(keys.seed_schedule_series[i])
+        self.args.args.checkpoint = keys.checkpoint_schedule_series[i] \
+            if self.args.anim_args.enable_checkpoint_scheduling else None
+
+    def update_sub_seed_schedule_for_current_step(self, indexes):
+        i = indexes.frame.i
+        keys = self.animation_keys.deform_keys
+        is_subseed_scheduling_enabled = self.args.anim_args.enable_subseed_scheduling
+        is_seed_managed_by_parseq = self.parseq_adapter.manages_seed()
+        if is_subseed_scheduling_enabled or is_seed_managed_by_parseq:
+            self.root.subseed = int(keys.subseed_schedule_series[i])
+        if is_subseed_scheduling_enabled and not is_seed_managed_by_parseq:
+            self.root.subseed_strength = float(keys.subseed_strength_schedule_series[i])
+        if is_seed_managed_by_parseq:
+            self.root.subseed_strength = keys.subseed_strength_schedule_series[i]  # TODO not sure why not type-coerced.
+            self.args.anim_args.enable_subseed_scheduling = True  # TODO should be enforced in init, not here.
 
     @staticmethod
     def create_output_directory_for_the_batch(directory):

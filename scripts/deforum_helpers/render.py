@@ -31,8 +31,8 @@ from .rendering.data.step import Step, TweenStep
 from .rendering.util import memory_utils, filename_utils, opt_utils, web_ui_utils
 from .rendering.util.call.gen import call_generate
 from .rendering.util.call.hybrid import call_get_flow_from_images, call_hybrid_composite
-from .rendering.util.call.images import call_add_noise, call_get_mask_from_file_with_frame
-from .rendering.util.call.mask import call_compose_mask_with_check, call_unsharp_mask
+from .rendering.util.call.images import call_get_mask_from_file_with_frame
+from .rendering.util.call.mask import call_compose_mask_with_check
 from .rendering.util.call.video_and_audio import call_render_preview, call_get_next_frame
 from .rendering.util.fun_utils import pipe
 from .rendering.util.image_utils import (
@@ -98,53 +98,16 @@ def run_render_animation(init):
                     init.depth_model.save(dm_save_path, step.depth)
 
         images.color_match = Step.create_color_match_for_video(init, indexes)
-        # after 1st frame, images.previous exists
-        if images.previous is not None:
-            images.previous = image_transformation_pipe(init, indexes, step, images)(images.previous)
 
-            # apply scaling
-            contrast_image = (images.previous * step.init.contrast).round().astype(np.uint8)
-            # anti-blur
-            if step.init.amount > 0:
-                step.init.kernel_size()
-                contrast_image = call_unsharp_mask(init, step, contrast_image, mask)
-            # apply frame noising
-            if init.args.args.use_mask or init.args.anim_args.use_noise_mask:
-                init.root.noise_mask = call_compose_mask_with_check(
-                    init, step.schedule.noise_mask_seq, mask.noise_vals, contrast_image)
+        if images.previous is not None:  # skipping 1st iteration
+            images.previous = frame_image_transformation_pipe(init, indexes, step, images)(images.previous)
+            contrast_image = contrast_image_transformation_pipe(init, step, mask)(images.previous)
+            noised_image = noise_image_transformation_pipe(init, step)(contrast_image)
+            init.update_some_args_for_current_progression_step(step, noised_image)
 
-            noised_image = call_add_noise(init, step, contrast_image)
-
-            # use transformed previous frame as init for current
-            init.args.args.use_init = True
-            init.root.init_sample = Image.fromarray(cv2.cvtColor(noised_image, cv2.COLOR_BGR2RGB))
-            init.args.args.strength = max(0.0, min(1.0, step.init.strength))
-
-        init.args.args.scale = step.init.scale
-
-        # Pix2Pix Image CFG Scale - does *nothing* with non pix2pix checkpoints
-        init.args.args.pix2pix_img_cfg_scale = float(
-            init.animation_keys.deform_keys.pix2pix_img_cfg_scale_series[indexes.frame.i])
-
-        # grab prompt for current frame
-        init.args.args.prompt = init.prompt_series[indexes.frame.i]
-
-        with context(init.animation_keys.deform_keys) as keys:
-            if init.args.args.seed_behavior == 'schedule' or init.parseq_adapter.manages_seed():
-                init.args.args.seed = int(keys.seed_schedule_series[indexes.frame.i])
-            if init.args.anim_args.enable_checkpoint_scheduling:
-                init.args.args.checkpoint = keys.checkpoint_schedule_series[indexes.frame.i]
-            else:
-                init.args.args.checkpoint = None
-
-            # SubSeed scheduling
-            if init.args.anim_args.enable_subseed_scheduling:
-                init.root.subseed = int(keys.subseed_schedule_series[indexes.frame.i])
-                init.root.subseed_strength = float(keys.subseed_strength_schedule_series[indexes.frame.i])
-            if init.parseq_adapter.manages_seed():
-                init.args.anim_args.enable_subseed_scheduling = True
-                init.root.subseed = int(keys.subseed_schedule_series[indexes.frame.i])
-                init.root.subseed_strength = keys.subseed_strength_schedule_series[indexes.frame.i]
+        init.update_some_args_for_current_step(indexes, step)
+        init.update_seed_and_checkpoint_for_current_step(indexes)
+        init.update_sub_seed_schedule_for_current_step(indexes)
 
         # set value back into the prompt - prepare and report prompt and seed
         init.args.args.prompt = prepare_prompt(init.args.args.prompt, init.args.anim_args.max_frames,
@@ -259,7 +222,7 @@ def emit_in_between_frames():
     raise NotImplemented("")
 
 
-def image_transformation_pipe(init, indexes, step, images):
+def frame_image_transformation_pipe(init, indexes, step, images):
     # make sure `im` stays the last argument in each call.
     return pipe(lambda im: step.apply_frame_warp_transform(init, indexes, im),
                 lambda im: step.do_hybrid_compositing_before_motion(init, indexes, im),
@@ -268,6 +231,15 @@ def image_transformation_pipe(init, indexes, step, images):
                 lambda im: step.do_normal_hybrid_compositing_after_motion(init, indexes, im),
                 lambda im: Step.apply_color_matching(init, images, im),
                 lambda im: Step.transform_to_grayscale_if_active(init, images, im))
+
+
+def contrast_image_transformation_pipe(init, step, mask):
+    return pipe(lambda im: step.apply_scaling(im),
+                lambda im: step.apply_anti_blur(init, mask, im))
+
+
+def noise_image_transformation_pipe(init, step):
+    return pipe(lambda im: step.apply_frame_noising(init, step, im))
 
 
 def generate_depth_maps_if_active(init):

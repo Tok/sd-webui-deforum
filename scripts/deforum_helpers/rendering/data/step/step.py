@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import cv2
+import numpy as np
 
 from ..initialization import RenderInit
 from ..schedule import Schedule
@@ -11,6 +12,8 @@ from ...util.call.hybrid import (
     call_get_flow_for_hybrid_motion, call_get_flow_for_hybrid_motion_prev,
     call_get_matrix_for_hybrid_motion,
     call_get_matrix_for_hybrid_motion_prev, call_hybrid_composite)
+from ...util.call.images import call_add_noise
+from ...util.call.mask import call_compose_mask_with_check, call_unsharp_mask
 from ...util.call.subtitle import call_format_animation_params, call_write_frame_subtitle
 from ...util.utils import context
 from ....hybrid_video import image_transform_ransac, image_transform_optical_flow
@@ -117,6 +120,23 @@ class Step:
     def do_normal_hybrid_compositing_after_motion(self, init, indexes, image):
         condition = init.is_normal_hybrid_composite()
         return self._do_hybrid_compositing_on_cond(init, indexes, image, condition)
+
+    def apply_scaling(self, image):
+        return (image * self.init.contrast).round().astype(np.uint8)
+
+    def apply_anti_blur(self, init, mask, image):
+        if self.init.amount > 0:
+            return call_unsharp_mask(init, self, image, mask)
+        else:
+            return image
+
+    def apply_frame_noising(self, init, mask, image):
+        is_use_any_mask = init.args.args.use_mask or init.args.anim_args.use_noise_mask
+        if is_use_any_mask:
+            seq = self.schedule.noise_mask_seq
+            vals = mask.noise_vals
+            init.root.noise_mask = call_compose_mask_with_check(init, seq, vals, contrast_image)
+        return call_add_noise(init, self, image)
 
     @staticmethod
     def apply_color_matching(init, images, image):
