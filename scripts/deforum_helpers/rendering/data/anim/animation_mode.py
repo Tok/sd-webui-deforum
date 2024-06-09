@@ -1,9 +1,12 @@
 import os
-
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
-from ....hybrid_video import hybrid_generation
+
+from ...util.memory_utils import keep_3d_models_in_vram
+from ...util.utils import combo_context
 from ....RAFT import RAFT
+from ....hybrid_video import hybrid_generation
 
 
 # TODO FIXME find a way to assign prev_flow right away, then set frozen=true again, otherwise move prev_flow elsewhere.
@@ -23,14 +26,14 @@ class AnimationMode:
     def is_raft_active(self) -> bool:
         return self.raft_model is not None
 
-    def cleanup(self):
+    def unload_raft_and_depth_model(self):
         if self.is_predicting_depths() and not self.is_keep_in_vram:
             self.depth_model.delete_model()  # handles adabins too
         if self.is_raft_active():
             self.raft_model.delete_model()
 
     @staticmethod
-    def _has_video_input(anim_args) -> bool:
+    def has_video_input(anim_args) -> bool:
         return AnimationMode._is_2d_or_3d_mode(anim_args) and AnimationMode._is_using_hybrid_frames(anim_args)
 
     @staticmethod
@@ -43,18 +46,19 @@ class AnimationMode:
                 or anim_args.hybrid_motion in ['Affine', 'Perspective', 'Optical Flow'])
 
     @staticmethod
-    def _is_needing_hybrid_frames(anim_args):
+    def _is_requiring_hybrid_frames(anim_args):
         return AnimationMode._is_2d_or_3d_mode(anim_args) and AnimationMode._is_using_hybrid_frames(anim_args)
 
     @staticmethod
     def _is_load_depth_model_for_3d(args, anim_args):
         is_depth_warped_3d = anim_args.animation_mode == '3D' and anim_args.use_depth_warping
-        is_composite_with_depth = anim_args.hybrid_composite and anim_args.hybrid_comp_mask_type in ['Depth', 'Video Depth']
-        is_depth_used = is_depth_warped_3d or anim_args.save_depth_maps or is_composite_with_depth
+        has_depth_or_depth_video_mask = anim_args.hybrid_comp_mask_type in ['Depth', 'Video Depth']
+        is_composite_with_depth_mask = anim_args.hybrid_composite and has_depth_or_depth_video_mask
+        is_depth_used = is_depth_warped_3d or anim_args.save_depth_maps or is_composite_with_depth_mask
         return is_depth_used and not args.motion_preview_mode
 
     @staticmethod
-    def _load_raft_if_active(anim_args, args):
+    def load_raft_if_active(anim_args, args):
         is_cadenced_raft = anim_args.optical_flow_cadence == "RAFT" and int(anim_args.diffusion_cadence) > 1
         is_optical_flow_raft = anim_args.hybrid_motion == "Optical Flow" and anim_args.hybrid_flow_method == "RAFT"
         is_raft_redo = anim_args.optical_flow_redo_generation == "RAFT"
@@ -64,24 +68,29 @@ class AnimationMode:
         return RAFT() if is_load_raft else None
 
     @staticmethod
-    def _load_depth_model_if_active(args, anim_args, opts):
+    def load_depth_model_if_active(args, anim_args, opts):
         return AnimationMode._is_load_depth_model_for_3d(args, anim_args) \
             if opts.data.get("deforum_keep_3d_models_in_vram", False) else None
 
     @staticmethod
+    def initial_hybrid_files(sa) -> list[Path]:
+        """
+        Returns a list of initial hybrid input files if required, otherwise an empty list.
+        """
+        if AnimationMode._is_requiring_hybrid_frames(sa.anim_args):
+            # may cause side effects on args and anim_args.
+            _, __, init_hybrid_input_files = hybrid_generation(sa.args, sa.anim_args, sa.root)
+            return init_hybrid_input_files
+        else:
+            return []
+
+    @staticmethod
     def from_args(step_args):
-        init_hybrid_input_files: Any = None
-        init_hybrid_frame_path = ""
-        if AnimationMode._is_needing_hybrid_frames(step_args.anim_args):
-            # handle hybrid video generation
-            # hybrid_generation may cause side effects on args and anim_args
-            _, __, init_hybrid_input_files = hybrid_generation(step_args.args, step_args.anim_args, step_args.root)
+        with combo_context(step_args, AnimationMode) as (sa, AM):
             # path required by hybrid functions, even if hybrid_comp_save_extra_frames is False
-            init_hybrid_frame_path = os.path.join(step_args.args.outdir, 'hybridframes')
-        return AnimationMode(AnimationMode._has_video_input(step_args.anim_args),
-                             init_hybrid_input_files,
-                             init_hybrid_frame_path,
-                             None,
-                             step_args.opts.data.get("deforum_keep_3d_models_in_vram", False),
-                             AnimationMode._load_depth_model_if_active(step_args.args, step_args.anim_args, step_args.opts),
-                             AnimationMode._load_raft_if_active(step_args.anim_args, step_args.args))
+            hybrid_input_files: Any = os.path.join(sa.args.outdir, 'hybridframes')
+            return AnimationMode(
+                AM.has_video_input(sa.anim_args), AM.initial_hybrid_files(sa),
+                hybrid_input_files, None, keep_3d_models_in_vram(sa),
+                AM.load_depth_model_if_active(sa.args, sa.anim_args, sa.opts),
+                AM.load_raft_if_active(sa.anim_args, sa.args))
