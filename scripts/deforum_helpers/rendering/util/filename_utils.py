@@ -1,8 +1,9 @@
 from enum import Enum
-from ..initialization import StepInit
-from ..data import Indexes
-from ...video_audio_utilities import get_frame_name
 from pathlib import Path
+
+from ..data import Indexes
+from ..data.step import StepInit
+from ...video_audio_utilities import get_frame_name
 
 
 class FileFormat(Enum):
