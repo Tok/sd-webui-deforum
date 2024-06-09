@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 from cv2.typing import MatLike
 

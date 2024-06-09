@@ -33,8 +33,8 @@ from .masks import do_overlay_mask
 from .noise import add_noise
 from .prompt import prepare_prompt
 from .rendering.data import Turbo, Images, Indexes, Mask
-from .rendering.data.step import StepInit, Step, SubStep
 from .rendering.data.initialization import RenderInit
+from .rendering.data.step import Step, TweenStep
 from .rendering.util import memory_utils, filename_utils, opt_utils, web_ui_utils
 from .rendering.util.call.anim import call_anim_frame_warp
 from .rendering.util.call.gen import call_generate
@@ -42,7 +42,6 @@ from .rendering.util.call.hybrid import (
     call_get_flow_from_images, call_get_flow_for_hybrid_motion, call_get_flow_for_hybrid_motion_prev,
     call_get_matrix_for_hybrid_motion, call_get_matrix_for_hybrid_motion_prev, call_hybrid_composite)
 from .rendering.util.call.images import call_get_mask_from_file_with_frame
-from .rendering.util.call.subtitle import call_format_animation_params, call_write_frame_subtitle
 from .rendering.util.call.video_and_audio import call_render_preview, call_get_next_frame
 from .rendering.util.log_utils import (
     print_animation_frame_info, print_tween_frame_info, print_init_frame_info, print_optical_flow_info,
@@ -81,49 +80,37 @@ def run_render_animation(init):
     web_ui_utils.init_job(init)
     last_preview_frame = 0
     while indexes.frame.i < init.args.anim_args.max_frames:
-        web_ui_utils.update_job(init, indexes)
-        print_animation_frame_info(init, indexes)
-
-        # TODO Stuff to be moved into new Step class in `run_render_animation_controlled`:
-        step = Step.create(init, indexes)
-
         memory_utils.handle_med_or_low_vram_before_step(init)
-
-        if turbo.is_first_step_with_subtitles(init):
-            params_to_print = opt_utils.generation_info_for_subtitles(init)
-            params_string = call_format_animation_params(init, indexes.frame.i, params_to_print)
-            call_write_frame_subtitle(init, indexes.frame.i, params_string)
-
+        print_animation_frame_info(init, indexes)
+        web_ui_utils.update_job(init, indexes)
+        step = Step.create(init, indexes)
+        step.write_frame_subtitle(init, indexes, turbo)
         if turbo.is_emit_in_between_frames():
-            indexes.tween.start = max(indexes.frame.start, indexes.frame.i - turbo.steps)
-            cadence_flow = None
+            indexes.update_tween_start(turbo)
             # TODO stuff for new SubStep class to be used in `run_render_animation_controlled`
-            for indexes.tween.i in range(indexes.tween.start, indexes.frame.i):
+            for tween_index in range(indexes.tween.start, indexes.frame.i):
+                indexes.update_tween(tween_index)
                 web_ui_utils.update_progress_during_cadence(init, indexes)
-
-                sub_step = SubStep.create(init, indexes)
+                tween_step = TweenStep.create(init, indexes)
 
                 # optical flow cadence setup before animation warping
                 if (init.args.anim_args.animation_mode in ['2D', '3D']
                         and init.args.anim_args.optical_flow_cadence != 'None'):
                     if init.animation_keys.deform_keys.strength_schedule_series[indexes.tween.start.i] > 0:
-                        if cadence_flow is None and turbo.prev.image is not None and turbo.next.image is not None:
-                            cadence_flow = call_get_flow_from_images(init, turbo.prev.image, turbo.next.image,
-                                                                     init.args.anim_args.optical_flow_cadence) / 2
-                            turbo.next.image = image_transform_optical_flow(turbo.next.image, -cadence_flow, 1)
-
-                if opt_utils.is_generate_subtitles(init):
-                    params_to_print = opt_utils.generation_info_for_subtitles(init)
-                    params_string = call_format_animation_params(init, indexes.tween.i, params_to_print)
-                    call_write_frame_subtitle(init, indexes.tween.i, params_string, sub_step.tween < 1.0)
-
-                print_tween_frame_info(init, indexes, cadence_flow, sub_step.tween)
+                        if (tween_step.cadence_flow is None
+                                and turbo.prev.image is not None
+                                and turbo.next.image is not None):
+                            tween_step.cadence_flow = (call_get_flow_from_images(
+                                init, turbo.prev.image, turbo.next.image, init.args.anim_args.optical_flow_cadence) / 2)
+                            turbo.next.image = image_transform_optical_flow(turbo.next.image, -tween_step.cadence_flow, 1)
+                step.write_frame_subtitle_if_active(init, indexes, opt_utils)
+                print_tween_frame_info(init, indexes, tween_step.cadence_flow, tween_step.tween)
 
                 if init.depth_model is not None:
                     assert (turbo.next.image is not None)
                     step.depth = init.depth_model.predict(turbo.next.image,
-                                                     init.args.anim_args.midas_weight,
-                                                     init.root.half_precision)
+                                                          init.args.anim_args.midas_weight,
+                                                          init.root.half_precision)
 
                 turbo.advance(init, indexes.tween.i, step.depth)
 
@@ -168,22 +155,23 @@ def run_render_animation(init):
 
                 # TODO cadence related transforms to be decoupled and handled in a 2nd pass
                 # do optical flow cadence after animation warping
-                with context(cadence_flow) as cf:
-                    if cf is not None:
-                        cf = abs_flow_to_rel_flow(cf, init.width(), init.height())
-                        cf, _ = call_anim_frame_warp(init, indexes.tween.i, cf, step.depth)
-                        cadence_flow_inc = rel_flow_to_abs_flow(cf, init.width(), init.height()) * sub_step.tween
-                        if turbo.is_advance_prev(indexes.tween.i):
-                            turbo.prev.image = image_transform_optical_flow(turbo.prev.image, cadence_flow_inc,
-                                                                            step.init.cadence_flow_factor)
-                        if turbo.is_advance_next(indexes.tween.i):
-                            turbo.next.image = image_transform_optical_flow(turbo.next.image, cadence_flow_inc,
-                                                                            step.init.cadence_flow_factor)
+                if tween_step.cadence_flow is not None:
+                    tween_step.cadence_flow = abs_flow_to_rel_flow(tween_step.cadence_flow, init.width(), init.height())
+                    tween_step.cadence_flow, _ = call_anim_frame_warp(
+                        init, indexes.tween.i, tween_step.cadence_flow, step.depth)
+                    tween_step.cadence_flow_inc = rel_flow_to_abs_flow(
+                        tween_step.cadence_flow, init.width(), init.height()) * tween_step.tween
+                    if turbo.is_advance_prev(indexes.tween.i):
+                        turbo.prev.image = image_transform_optical_flow(
+                            turbo.prev.image, tween_step.cadence_flow_inc, step.init.sub_step.cadence_flow_factor)
+                    if turbo.is_advance_next(indexes.tween.i):
+                        turbo.next.image = image_transform_optical_flow(
+                            turbo.next.image, tween_step.cadence_flow_inc, step.init.sub_step.cadence_flow_factor)
 
                 turbo.prev.index = turbo.next.frame_idx = indexes.tween.i
 
-                if turbo.prev.image is not None and sub_step.tween < 1.0:
-                    img = turbo.prev.image * (1.0 - sub_step.tween) + turbo.next.image * sub_step.tween
+                if turbo.prev.image is not None and tween_step.tween < 1.0:
+                    img = turbo.prev.image * (1.0 - tween_step.tween) + turbo.next.image * tween_step.tween
                 else:
                     img = turbo.next.image
 
@@ -427,7 +415,9 @@ def run_render_animation(init):
         if not init.animation_mode.has_video_input:
             images.previous = opencv_image
 
-        indexes.frame.i, step.depth = progress_step(init, indexes, turbo, opencv_image, image, step.depth)
+        next_frame, step.depth = progress_step(init, indexes, turbo, opencv_image, image, step.depth)
+        indexes.update_frame(next_frame)
+
         state.assign_current_image(image)
         # may reassign init.args.args and/or root.seed_internal
         init.args.args.seed = next_seed(init.args.args, init.root)  # TODO group all seeds and sub-seeds

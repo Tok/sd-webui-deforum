@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..schedule import Schedule
+from ...util.call.subtitle import call_format_animation_params, call_write_frame_subtitle
 from ...util.utils import context
 
 
@@ -56,9 +57,23 @@ class Step:
     init: StepInit
     schedule: Schedule
     depth: Any  # TODO try to init early, then freeze class
+    subtitle_params_to_print: Any
+    subtitle_params_string: str
 
     @staticmethod
     def create(init, indexes):
         step_init = StepInit.create(init.animation_keys.deform_keys, indexes.frame.i)
         schedule = Schedule.create(init, indexes.frame.i, init.args.anim_args, init.args.args)
-        return Step(step_init, schedule, None)
+        return Step(step_init, schedule, None, None, "")
+
+    def write_frame_subtitle(self, init, indexes, turbo):
+        if turbo.is_first_step_with_subtitles(init):
+            self.subtitle_params_to_print = opt_utils.generation_info_for_subtitles(init)
+            self.subtitle_params_string = call_format_animation_params(init, indexes.frame.i, params_to_print)
+            call_write_frame_subtitle(init, indexes.frame.i, params_string)
+
+    def write_frame_subtitle_if_active(self, init, indexes, opt_utils):
+        if opt_utils.is_generate_subtitles(init):
+            self.subtitle_params_to_print = opt_utils.generation_info_for_subtitles(init)
+            self.subtitle_params_string = call_format_animation_params(init, indexes.tween.i, params_to_print)
+            call_write_frame_subtitle(init, indexes.tween.i, params_string, sub_step.tween < 1.0)
