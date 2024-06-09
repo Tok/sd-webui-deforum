@@ -17,7 +17,6 @@
 import gc
 import os
 
-import PIL
 import cv2
 import numpy as np
 from PIL import Image
@@ -35,6 +34,7 @@ from .rendering.util.call.hybrid import call_get_flow_from_images, call_hybrid_c
 from .rendering.util.call.images import call_add_noise, call_get_mask_from_file_with_frame
 from .rendering.util.call.mask import call_compose_mask_with_check, call_unsharp_mask
 from .rendering.util.call.video_and_audio import call_render_preview, call_get_next_frame
+from .rendering.util.fun_utils import pipe
 from .rendering.util.image_utils import (
     add_overlay_mask_if_active, force_to_grayscale_if_required, save_cadence_frame)
 from .rendering.util.log_utils import (
@@ -100,13 +100,7 @@ def run_render_animation(init):
         images.color_match = Step.create_color_match_for_video(init, indexes)
         # after 1st frame, images.previous exists
         if images.previous is not None:
-            images.previous = step.apply_frame_warp_transform(init, indexes, images.previous)
-            images.previous = step.do_hybrid_compositing_before_motion(init, indexes, images.previous)
-            images.previous = Step.apply_hybrid_motion_ransac_transform(init, indexes, images, images.previous)
-            images.previous = Step.apply_hybrid_motion_optical_flow(init, indexes, images, images.previous)
-            images.previous = step.do_normal_hybrid_compositing_after_motion(init, indexes, images.previous)
-            images.previous = Step.apply_color_matching(init, images, images.previous)
-            images.previous = Step.transform_to_grayscale_if_active(init, images, images.previous)
+            images.previous = image_transformation_pipe(init, indexes, step, images)(images.previous)
 
             # apply scaling
             contrast_image = (images.previous * step.init.contrast).round().astype(np.uint8)
@@ -263,6 +257,17 @@ def run_render_animation(init):
 
 def emit_in_between_frames():
     raise NotImplemented("")
+
+
+def image_transformation_pipe(init, indexes, step, images):
+    # make sure `im` stays the last argument in each call.
+    return pipe(lambda im: step.apply_frame_warp_transform(init, indexes, im),
+                lambda im: step.do_hybrid_compositing_before_motion(init, indexes, im),
+                lambda im: Step.apply_hybrid_motion_ransac_transform(init, indexes, images, im),
+                lambda im: Step.apply_hybrid_motion_optical_flow(init, indexes, images, im),
+                lambda im: step.do_normal_hybrid_compositing_after_motion(init, indexes, im),
+                lambda im: Step.apply_color_matching(init, images, im),
+                lambda im: Step.transform_to_grayscale_if_active(init, images, im))
 
 
 def generate_depth_maps_if_active(init):
