@@ -103,36 +103,14 @@ def run_render_animation(init):
             images.previous = frame_image_transformation_pipe(init, indexes, step, images)(images.previous)
             contrast_image = contrast_image_transformation_pipe(init, step, mask)(images.previous)
             noised_image = noise_image_transformation_pipe(init, step)(contrast_image)
-            init.update_some_args_for_current_progression_step(step, noised_image)
+            init.update_sample_and_args_for_current_progression_step(step, noised_image)
 
         init.update_some_args_for_current_step(indexes, step)
         init.update_seed_and_checkpoint_for_current_step(indexes)
         init.update_sub_seed_schedule_for_current_step(indexes)
-
-        # set value back into the prompt - prepare and report prompt and seed
-        init.args.args.prompt = prepare_prompt(init.args.args.prompt, init.args.anim_args.max_frames,
-                                               init.args.args.seed, indexes.frame.i)
-        # grab init image for current frame
-        if init.animation_mode.has_video_input:
-            init_frame = call_get_next_frame(init, indexes.frame.i, init.args.anim_args.video_init_path)
-            print_init_frame_info(init_frame)
-            init.args.args.init_image = init_frame
-            init.args.args.init_image_box = None  # init_image_box not used in this case
-            init.args.args.strength = max(0.0, min(1.0, step.init.strength))
-        if init.args.anim_args.use_mask_video:
-            mask_init_frame = call_get_next_frame(init, indexes.frame.i, init.args.anim_args.video_mask_path, True)
-            temp_mask = call_get_mask_from_file_with_frame(init, mask_init_frame)
-            init.args.args.mask_file = temp_mask
-            init.root.noise_mask = temp_mask
-            mask.vals['video_mask'] = temp_mask
-
-        if init.args.args.use_mask:
-            init.args.args.mask_image = call_compose_mask_with_check(
-                init, step.schedule.mask_seq, mask.vals, init.root.init_sample)
-            init.args.args.mask_image = compose_mask_with_check(init.root, init.args.args, step.schedule.mask_seq,
-                                                                mask.vals, init.root.init_sample) \
-                if init.root.init_sample is not None else None  # we need it only after the first frame anyway
-
+        init.prompt_for_current_step(indexes)
+        init.update_video_data_for_current_frame(indexes, step)
+        init.update_mask_image(step, mask)
         init.animation_keys.update(indexes.frame.i)
         opt_utils.setup(init, step.schedule)
 
