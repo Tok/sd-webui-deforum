@@ -25,12 +25,9 @@ from PIL import Image, ImageOps
 from modules.shared import opts, state
 
 from .colors import maintain_colors
-from .composable_masks import compose_mask_with_check
 from .hybrid_video import (
     image_transform_ransac, image_transform_optical_flow, abs_flow_to_rel_flow, rel_flow_to_abs_flow)
-from .image_sharpening import unsharp_mask
 from .masks import do_overlay_mask
-from .noise import add_noise
 from .prompt import prepare_prompt
 from .rendering.data import Turbo, Images, Indexes, Mask
 from .rendering.data.initialization import RenderInit
@@ -41,7 +38,8 @@ from .rendering.util.call.gen import call_generate
 from .rendering.util.call.hybrid import (
     call_get_flow_from_images, call_get_flow_for_hybrid_motion, call_get_flow_for_hybrid_motion_prev,
     call_get_matrix_for_hybrid_motion, call_get_matrix_for_hybrid_motion_prev, call_hybrid_composite)
-from .rendering.util.call.images import call_get_mask_from_file_with_frame
+from .rendering.util.call.images import call_add_noise, call_get_mask_from_file_with_frame
+from .rendering.util.call.mask import call_compose_mask_with_check, call_unsharp_mask
 from .rendering.util.call.video_and_audio import call_render_preview, call_get_next_frame
 from .rendering.util.log_utils import (
     print_animation_frame_info, print_tween_frame_info, print_init_frame_info, print_optical_flow_info,
@@ -102,7 +100,8 @@ def run_render_animation(init):
                                 and turbo.next.image is not None):
                             tween_step.cadence_flow = (call_get_flow_from_images(
                                 init, turbo.prev.image, turbo.next.image, init.args.anim_args.optical_flow_cadence) / 2)
-                            turbo.next.image = image_transform_optical_flow(turbo.next.image, -tween_step.cadence_flow, 1)
+                            turbo.next.image = image_transform_optical_flow(turbo.next.image, -tween_step.cadence_flow,
+                                                                            1)
                 step.write_frame_subtitle_if_active(init, indexes, opt_utils)
                 print_tween_frame_info(init, indexes, tween_step.cadence_flow, tween_step.tween)
 
@@ -257,25 +256,13 @@ def run_render_animation(init):
             # anti-blur
             if step.init.amount > 0:
                 step.init.kernel_size()
-                contrast_image = unsharp_mask(contrast_image,
-                                              (step.init.kernel, step.init.kernel),
-                                              step.init.sigma,
-                                              step.init.amount,
-                                              step.init.threshold,
-                                              mask.image if init.args.args.use_mask else None)
+                contrast_image = call_unsharp_mask(init, step, contrast_image, mask)
             # apply frame noising
             if init.args.args.use_mask or init.args.anim_args.use_noise_mask:
-                init.root.noise_mask = compose_mask_with_check(init.root,
-                                                               init.args.args,
-                                                               step.schedule.noise_mask_seq,
-                                                               mask.noise_vals,
-                                                               Image.fromarray(cv2.cvtColor(contrast_image,
-                                                                                            cv2.COLOR_BGR2RGB)))
+                init.root.noise_mask = call_compose_mask_with_check(
+                    init, step.schedule.noise_mask_seq, mask.noise_vals, contrast_image)
 
-            with context(init.args.anim_args) as aa:
-                noised_image = add_noise(contrast_image, step.init.noise, init.args.args.seed, aa.noise_type,
-                                         (aa.perlin_w, aa.perlin_h, aa.perlin_octaves, aa.perlin_persistence),
-                                         init.root.noise_mask, init.args.args.invert_mask)
+            noised_image = call_add_noise(init, step, contrast_image)
 
             # use transformed previous frame as init for current
             init.args.args.use_init = True
@@ -291,46 +278,47 @@ def run_render_animation(init):
         # grab prompt for current frame
         init.args.args.prompt = init.prompt_series[indexes.frame.i]
 
-        with context(init.args) as ia:
-            with context(init.animation_keys.deform_keys) as keys:
-                # FIXME? check ia.args.seed_behavior
-                if ia.args.seed_behavior == 'schedule' or init.parseq_adapter.manages_seed():
-                    ia.args.seed = int(keys.seed_schedule_series[indexes.frame.i])  # TODO recontextualize frame index
-                if ia.anim_args.enable_checkpoint_scheduling:
-                    ia.args.checkpoint = keys.checkpoint_schedule_series[indexes.frame.i]
-                else:
-                    ia.args.checkpoint = None
+        with context(init.animation_keys.deform_keys) as keys:
+            if init.args.args.seed_behavior == 'schedule' or init.parseq_adapter.manages_seed():
+                init.args.args.seed = int(keys.seed_schedule_series[indexes.frame.i])
+            if init.args.anim_args.enable_checkpoint_scheduling:
+                init.args.args.checkpoint = keys.checkpoint_schedule_series[indexes.frame.i]
+            else:
+                init.args.args.checkpoint = None
 
-                # SubSeed scheduling
-                if ia.anim_args.enable_subseed_scheduling:
-                    init.root.subseed = int(keys.subseed_schedule_series[indexes.frame.i])
-                    init.root.subseed_strength = float(keys.subseed_strength_schedule_series[indexes.frame.i])
-                if init.parseq_adapter.manages_seed():
-                    init.args.anim_args.enable_subseed_scheduling = True
-                    init.root.subseed = int(keys.subseed_schedule_series[indexes.frame.i])
-                    init.root.subseed_strength = keys.subseed_strength_schedule_series[indexes.frame.i]
+            # SubSeed scheduling
+            if init.args.anim_args.enable_subseed_scheduling:
+                init.root.subseed = int(keys.subseed_schedule_series[indexes.frame.i])
+                init.root.subseed_strength = float(keys.subseed_strength_schedule_series[indexes.frame.i])
+            if init.parseq_adapter.manages_seed():
+                init.args.anim_args.enable_subseed_scheduling = True
+                init.root.subseed = int(keys.subseed_schedule_series[indexes.frame.i])
+                init.root.subseed_strength = keys.subseed_strength_schedule_series[indexes.frame.i]
 
-            # set value back into the prompt - prepare and report prompt and seed
-            ia.args.prompt = prepare_prompt(ia.args.prompt, ia.anim_args.max_frames, ia.args.seed, indexes.frame.i)
-            # grab init image for current frame
-            if init.animation_mode.has_video_input:
-                init_frame = call_get_next_frame(init, indexes.frame.i, ia.anim_args.video_init_path)
-                print_init_frame_info(init_frame)
-                ia.args.init_image = init_frame
-                ia.args.init_image_box = None  # init_image_box not used in this case
-                ia.args.strength = max(0.0, min(1.0, step.init.strength))
-            if ia.anim_args.use_mask_video:
-                mask_init_frame = call_get_next_frame(init, indexes.frame.i, ia.anim_args.video_mask_path, True)
-                temp_mask = call_get_mask_from_file_with_frame(init, mask_init_frame)
-                ia.args.mask_file = temp_mask
-                init.root.noise_mask = temp_mask
-                mask.vals['video_mask'] = temp_mask
+        # set value back into the prompt - prepare and report prompt and seed
+        init.args.args.prompt = prepare_prompt(init.args.args.prompt, init.args.anim_args.max_frames,
+                                               init.args.args.seed, indexes.frame.i)
+        # grab init image for current frame
+        if init.animation_mode.has_video_input:
+            init_frame = call_get_next_frame(init, indexes.frame.i, init.args.anim_args.video_init_path)
+            print_init_frame_info(init_frame)
+            init.args.args.init_image = init_frame
+            init.args.args.init_image_box = None  # init_image_box not used in this case
+            init.args.args.strength = max(0.0, min(1.0, step.init.strength))
+        if init.args.anim_args.use_mask_video:
+            mask_init_frame = call_get_next_frame(init, indexes.frame.i, init.args.anim_args.video_mask_path, True)
+            temp_mask = call_get_mask_from_file_with_frame(init, mask_init_frame)
+            init.args.args.mask_file = temp_mask
+            init.root.noise_mask = temp_mask
+            mask.vals['video_mask'] = temp_mask
 
-            if ia.args.use_mask:
-                # TODO figure why this is different from mask.image
-                ia.args.mask_image = compose_mask_with_check(init.root, ia.args, step.schedule.mask_seq,
-                                                             mask.vals, init.root.init_sample) \
-                    if init.root.init_sample is not None else None  # we need it only after the first frame anyway
+        if init.args.args.use_mask:
+            # TODO figure why this is different from mask.image
+            init.args.args.mask_image = call_compose_mask_with_check(
+                init, step.schedule.mask_seq, mask.vals, init.root.init_sample)
+            init.args.args.mask_image = compose_mask_with_check(init.root, init.args.args, step.schedule.mask_seq,
+                                                                mask.vals, init.root.init_sample) \
+                if init.root.init_sample is not None else None  # we need it only after the first frame anyway
 
         init.animation_keys.update(indexes.frame.i)
         opt_utils.setup(init, step.schedule)

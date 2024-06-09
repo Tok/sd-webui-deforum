@@ -1,4 +1,16 @@
 from ....load_images import get_mask_from_file
+from ....noise import add_noise
+
+
+def call_add_noise(init, step, image):
+    aa = init.args.anim_args
+    amount: float = step.init.noise
+    seed: int = init.args.args.seed
+    n_type: str = aa.noise_type
+    perlin_arguments = (aa.perlin_w, aa.perlin_h, aa.perlin_octaves, aa.perlin_persistence)
+    mask = init.root.noise_mask
+    is_do_maks_invert = init.args.args.invert_mask
+    return add_noise(image, amount, seed, n_type, perlin_arguments, mask, is_do_maks_invert)
 
 
 def call_get_mask_from_file(init, i, is_mask: bool = False):
