@@ -25,21 +25,18 @@ from PIL import Image
 from modules.shared import opts, state
 
 from .colors import maintain_colors
-from .hybrid_video import image_transform_ransac, image_transform_optical_flow
 from .prompt import prepare_prompt
 from .rendering.data import Turbo, Images, Indexes, Mask
 from .rendering.data.initialization import RenderInit
 from .rendering.data.step import Step, TweenStep
 from .rendering.util import memory_utils, filename_utils, opt_utils, web_ui_utils
-from .rendering.util.call.anim import call_anim_frame_warp
 from .rendering.util.call.gen import call_generate
-from .rendering.util.call.hybrid import (
-    call_get_flow_from_images, call_get_flow_for_hybrid_motion, call_get_flow_for_hybrid_motion_prev,
-    call_get_matrix_for_hybrid_motion, call_get_matrix_for_hybrid_motion_prev, call_hybrid_composite)
+from .rendering.util.call.hybrid import call_get_flow_from_images, call_hybrid_composite
 from .rendering.util.call.images import call_add_noise, call_get_mask_from_file_with_frame
 from .rendering.util.call.mask import call_compose_mask_with_check, call_unsharp_mask
 from .rendering.util.call.video_and_audio import call_render_preview, call_get_next_frame
-from .rendering.util.image_utils import add_overlay_mask_if_active, force_to_grayscale_if_required, save_cadence_frame
+from .rendering.util.image_utils import (
+    add_overlay_mask_if_active, force_to_grayscale_if_required, save_cadence_frame)
 from .rendering.util.log_utils import (
     print_animation_frame_info, print_tween_frame_info, print_init_frame_info, print_optical_flow_info,
     print_redo_generation_info)
@@ -73,6 +70,7 @@ def run_render_animation(init):
         if turbo.is_emit_in_between_frames():  # TODO extract tween frame emition
             indexes.update_tween_start(turbo)
             for tween_index in range(indexes.tween.start, indexes.frame.i):
+
                 indexes.update_tween(tween_index)
                 web_ui_utils.update_progress_during_cadence(init, indexes)
                 tween_step = TweenStep.create(indexes)
@@ -99,56 +97,16 @@ def run_render_animation(init):
                     dm_save_path = os.path.join(init.output_directory, filename_utils.tween_depth_frame(init, indexes))
                     init.depth_model.save(dm_save_path, step.depth)
 
-        # get color match for video outside of images.previous conditional
-        if init.args.anim_args.color_coherence == 'Video Input' and init.is_hybrid_available():
-            if int(indexes.frame.i) % int(init.args.anim_args.color_coherence_video_every_N_frames) == 0:
-                prev_vid_img = Image.open(preview_video_image_path(init, indexes))
-                prev_vid_img = prev_vid_img.resize(init.dimensions(), PIL.Image.LANCZOS)
-                images.color_match = np.asarray(prev_vid_img)
-                images.color_match = cv2.cvtColor(images.color_match, cv2.COLOR_RGB2BGR)
-
+        images.color_match = Step.create_color_match_for_video(init, indexes)
         # after 1st frame, images.previous exists
         if images.previous is not None:
-            # apply transforms to previous frame
-            images.previous, step.depth = call_anim_frame_warp(init, indexes.frame.i, images.previous, None)
-
-            # do hybrid compositing before motion
-            if init.is_hybrid_composite_before_motion():
-                _, images.previous = call_hybrid_composite(init, indexes.frame.i, images.previous,
-                                                           step.init.hybrid_comp_schedules)
-
-            # hybrid video motion - warps images.previous to match motion, usually to prepare for compositing
-            with context(init.args.anim_args) as aa:
-                if aa.hybrid_motion in ['Affine', 'Perspective']:
-                    if aa.hybrid_motion_use_prev_img:
-                        matrix = call_get_matrix_for_hybrid_motion_prev(init, indexes.frame.i - 1, images.previous)
-                    else:
-                        matrix = call_get_matrix_for_hybrid_motion(init, indexes.frame.i - 1)
-                    images.previous = image_transform_ransac(images.previous, matrix, aa.hybrid_motion)
-                if aa.hybrid_motion in ['Optical Flow']:
-                    if aa.hybrid_motion_use_prev_img:
-                        flow = call_get_flow_for_hybrid_motion_prev(init, indexes.frame.i - 1, images.previous)
-                    else:
-                        flow = call_get_flow_for_hybrid_motion(init, indexes.frame.i - 1)
-                    images.previous = image_transform_optical_flow(images.previous, flow, step.init.flow_factor())
-                    init.animation_mode.prev_flow = flow
-
-            # do hybrid compositing after motion (normal)
-            if init.is_normal_hybrid_composite():
-                _, images.previous = call_hybrid_composite(init, indexes.frame.i, images.previous,
-                                                           step.init.hybrid_comp_schedules)
-            # apply color matching
-            if init.has_color_coherence():
-                if images.color_match is None:
-                    images.color_match = images.previous.copy()
-                else:
-                    images.previous = maintain_colors(images.previous, images.color_match,
-                                                      init.args.anim_args.color_coherence)
-
-            # intercept and override to grayscale
-            if init.args.anim_args.color_force_grayscale:
-                images.previous = cv2.cvtColor(images.previous, cv2.COLOR_BGR2GRAY)
-                images.previous = cv2.cvtColor(images.previous, cv2.COLOR_GRAY2BGR)
+            images.previous = step.apply_frame_warp_transform(init, indexes, images.previous)
+            images.previous = step.do_hybrid_compositing_before_motion(init, indexes, images.previous)
+            images.previous = Step.apply_hybrid_motion_ransac_transform(init, indexes, images, images.previous)
+            images.previous = Step.apply_hybrid_motion_optical_flow(init, indexes, images, images.previous)
+            images.previous = step.do_normal_hybrid_compositing_after_motion(init, indexes, images.previous)
+            images.previous = Step.apply_color_matching(init, images, images.previous)
+            images.previous = Step.transform_to_grayscale_if_active(init, images, images.previous)
 
             # apply scaling
             contrast_image = (images.previous * step.init.contrast).round().astype(np.uint8)

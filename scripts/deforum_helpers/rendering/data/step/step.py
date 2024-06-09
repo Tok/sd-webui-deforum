@@ -1,11 +1,19 @@
 from dataclasses import dataclass
 from typing import Any
 
+import cv2
+
 from ..initialization import RenderInit
 from ..schedule import Schedule
 from ..turbo import Turbo
+from ...util.call.anim import call_anim_frame_warp
+from ...util.call.hybrid import (
+    call_get_flow_for_hybrid_motion, call_get_flow_for_hybrid_motion_prev,
+    call_get_matrix_for_hybrid_motion,
+    call_get_matrix_for_hybrid_motion_prev, call_hybrid_composite)
 from ...util.call.subtitle import call_format_animation_params, call_write_frame_subtitle
 from ...util.utils import context
+from ....hybrid_video import image_transform_ransac, image_transform_optical_flow
 
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
@@ -88,3 +96,79 @@ class Step:
             self.subtitle_params_to_print = opt_utils.generation_info_for_subtitles(init)
             self.subtitle_params_string = call_format_animation_params(init, indexes.tween.i, params_to_print)
             call_write_frame_subtitle(init, indexes.tween.i, params_string, sub_step.tween < 1.0)
+
+    def apply_frame_warp_transform(self, init, indexes, image):
+        previous, self.depth = call_anim_frame_warp(init, indexes.frame.i, image, None)
+        return previous
+
+    def _do_hybrid_compositing_on_cond(self, init, indexes, image, condition):
+        i = indexes.frame.i
+        schedules = self.init.hybrid_comp_schedules
+        if condition:
+            _, composed = call_hybrid_composite(init, i, image, schedules)
+            return composed
+        else:
+            return image
+
+    def do_hybrid_compositing_before_motion(self, init, indexes, image):
+        condition = init.is_hybrid_composite_before_motion()
+        return self._do_hybrid_compositing_on_cond(init, indexes, image, condition)
+
+    def do_normal_hybrid_compositing_after_motion(self, init, indexes, image):
+        condition = init.is_normal_hybrid_composite()
+        return self._do_hybrid_compositing_on_cond(init, indexes, image, condition)
+
+    @staticmethod
+    def apply_color_matching(init, images, image):
+        if init.has_color_coherence():
+            if images.color_match is None:
+                # TODO questionable
+                # initialize color_match for next iteration with current image, but don't do anything yet.
+                images.color_match = image.copy()
+            else:
+                return maintain_colors(image, images.color_match, init.args.anim_args.color_coherence)
+        return image
+
+    @staticmethod
+    def transform_to_grayscale_if_active(init, images, image):
+        if init.args.anim_args.color_force_grayscale:
+            grayscale = cv2.cvtColor(images.previous, cv2.COLOR_BGR2GRAY)
+            return cv2.cvtColor(grayscale, cv2.COLOR_GRAY2BGR)
+        else:
+            return image
+
+    @staticmethod
+    def apply_hybrid_motion_ransac_transform(init, indexes, reference_images, image):
+        """hybrid video motion - warps images.previous to match motion, usually to prepare for compositing"""
+        motion = init.args.anim_args.hybrid_motion
+        if motion in ['Affine', 'Perspective']:
+            last_i = indexes.frame.i - 1
+            matrix = call_get_matrix_for_hybrid_motion_prev(init, last_i, reference_images.previous) \
+                if init.args.anim_args.hybrid_motion_use_prev_img \
+                else call_get_matrix_for_hybrid_motion(init, last_i)
+            return image_transform_ransac(image, matrix, init.args.anim_args.hybrid_motion)
+        return image
+
+    @staticmethod
+    def apply_hybrid_motion_optical_flow(init, indexes, reference_images, image):
+        motion = init.args.anim_args.hybrid_motion
+        if motion in ['Optical Flow']:
+            last_i = indexes.frame.i - 1
+            flow = call_get_flow_for_hybrid_motion_prev(init, last_i, reference_images.previous) \
+                if init.args.anim_args.hybrid_motion_use_prev_img \
+                else call_get_flow_for_hybrid_motion(init, last_i)
+            transformed = image_transform_optical_flow(images.previous, flow, step.init.flow_factor())
+            init.animation_mode.prev_flow = flow  # side effect
+            return transformed
+        else:
+            return image
+
+    @staticmethod
+    def create_color_match_for_video(init, indexes):
+        if init.args.anim_args.color_coherence == 'Video Input' and init.is_hybrid_available():
+            if int(indexes.frame.i) % int(init.args.anim_args.color_coherence_video_every_N_frames) == 0:
+                prev_vid_img = Image.open(preview_video_image_path(init, indexes))
+                prev_vid_img = prev_vid_img.resize(init.dimensions(), PIL.Image.LANCZOS)
+                images.color_match = np.asarray(prev_vid_img)
+                return cv2.cvtColor(images.color_match, cv2.COLOR_RGB2BGR)
+        return None
