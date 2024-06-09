@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from typing import Any
 
+from ..initialization import RenderInit
 from ..schedule import Schedule
+from ..turbo import Turbo
 from ...util.call.subtitle import call_format_animation_params, call_write_frame_subtitle
 from ...util.utils import context
 
@@ -65,6 +67,15 @@ class Step:
         step_init = StepInit.create(init.animation_keys.deform_keys, indexes.frame.i)
         schedule = Schedule.create(init, indexes.frame.i, init.args.anim_args, init.args.args)
         return Step(step_init, schedule, None, None, "")
+
+    def update_depth_prediction(self, init: RenderInit, turbo: Turbo):
+        has_depth = init.depth_model is not None
+        has_next = turbo.next.image is not None
+        if has_depth and has_next:
+            image = turbo.next.image
+            weight = init.args.anim_args.midas_weight
+            precision = init.root.half_precision
+            self.depth = init.depth_model.predict(image, weight, precision)
 
     def write_frame_subtitle(self, init, indexes, turbo):
         if turbo.is_first_step_with_subtitles(init):

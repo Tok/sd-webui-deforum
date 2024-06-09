@@ -52,6 +52,12 @@ class RenderInit:
     def is_3d(self):
         return self.args.anim_args.animation_mode == '3D'
 
+    def is_3d_or_2d(self):
+        return self.args.anim_args.animation_mode in ['2D', '3D']
+
+    def has_optical_flow_cadence(self):
+        return self.args.anim_args.optical_flow_cadence != 'None'
+
     def is_3d_with_med_or_low_vram(self):
         return self.is_3d() and memory_utils.is_low_or_med_vram()
 

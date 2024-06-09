@@ -51,25 +51,14 @@ from .seed import next_seed
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
     init = RenderInit.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
-    # TODO method is temporarily torn apart to remove args from direct access in larger execution scope.
     run_render_animation(init)
 
 
 def run_render_animation_controlled(init):
-    # TODO create a Step class in rendering.data with all the iteration specific info,
-    #  then eventually try to replace the main while loop in `run_render_animation` with functions that:
-    #  - 1. Create a collection of Steps with all the required info that is already known or can be calculated
-    #       before we enter the iteration.
-    #  - 2. Transform and reprocess the steps however needed (i.e. space out or reassign turbo frames etc.)
-    #       TODO cadence framing and logic that is currently working off-index may eventually be moved into a 2nd pass.
-    #  - 3. Actually do the render by foreaching over the steps in sequence
-    # TODO also create a SubStep class for the inner for-loop in `run_render_animation` (maybe do that 1st).
     raise NotImplementedError("not implemented.")
 
 
 def run_render_animation(init):
-    # TODO try to avoid late init of "prev_flow" or isolate it together with all other moving parts.
-    # TODO isolate "depth" with other moving parts
     images = Images.create(init)
     turbo = Turbo.create(init)  # state for interpolating between diffusion steps
     indexes = Indexes.create(init, turbo)
@@ -83,96 +72,25 @@ def run_render_animation(init):
         web_ui_utils.update_job(init, indexes)
         step = Step.create(init, indexes)
         step.write_frame_subtitle(init, indexes, turbo)
-        if turbo.is_emit_in_between_frames():
+        if turbo.is_emit_in_between_frames():  # TODO extract tween frame emition
             indexes.update_tween_start(turbo)
-            # TODO stuff for new SubStep class to be used in `run_render_animation_controlled`
             for tween_index in range(indexes.tween.start, indexes.frame.i):
                 indexes.update_tween(tween_index)
                 web_ui_utils.update_progress_during_cadence(init, indexes)
                 tween_step = TweenStep.create(init, indexes)
 
-                # optical flow cadence setup before animation warping
-                if (init.args.anim_args.animation_mode in ['2D', '3D']
-                        and init.args.anim_args.optical_flow_cadence != 'None'):
-                    if init.animation_keys.deform_keys.strength_schedule_series[indexes.tween.start.i] > 0:
-                        if (tween_step.cadence_flow is None
-                                and turbo.prev.image is not None
-                                and turbo.next.image is not None):
-                            tween_step.cadence_flow = (call_get_flow_from_images(
-                                init, turbo.prev.image, turbo.next.image, init.args.anim_args.optical_flow_cadence) / 2)
-                            turbo.next.image = image_transform_optical_flow(turbo.next.image, -tween_step.cadence_flow,
-                                                                            1)
+                turbo.do_optical_flow_cadence_setup_before_animation_warping(init, tween_step)
+
                 step.write_frame_subtitle_if_active(init, indexes, opt_utils)
                 print_tween_frame_info(init, indexes, tween_step.cadence_flow, tween_step.tween)
 
-                if init.depth_model is not None:
-                    assert (turbo.next.image is not None)
-                    step.depth = init.depth_model.predict(turbo.next.image,
-                                                          init.args.anim_args.midas_weight,
-                                                          init.root.half_precision)
-
+                step.update_depth_prediction(init, turbo)
                 turbo.advance(init, indexes.tween.i, step.depth)
 
-                # hybrid video motion - warps turbo.prev.image or turbo.next.image to match motion
-                if indexes.tween.i > 0:
-                    if init.args.anim_args.hybrid_motion in ['Affine', 'Perspective']:
-                        if init.args.anim_args.hybrid_motion_use_prev_img:
-                            matrix = call_get_matrix_for_hybrid_motion_prev(init, indexes.tween.i - 1, images.previous)
-                            if turbo.is_advance_prev(indexes.tween.i):
-                                turbo.prev.image = image_transform_ransac(turbo.prev.image, matrix,
-                                                                          init.args.anim_args.hybrid_motion)
-                            if turbo.is_advance_next(indexes.tween.i):
-                                turbo.next.image = image_transform_ransac(turbo.next.image, matrix,
-                                                                          init.args.anim_args.hybrid_motion)
-                        else:
-                            matrix = call_get_matrix_for_hybrid_motion(init, indexes.tween.i - 1)
-                            if turbo.is_advance_prev(indexes.tween.i):
-                                turbo.prev.image = image_transform_ransac(turbo.prev.image, matrix,
-                                                                          init.args.anim_args.hybrid_motion)
-                            if turbo.is_advance_next(indexes.tween.i):
-                                turbo.next.image = image_transform_ransac(turbo.next.image, matrix,
-                                                                          init.args.anim_args.hybrid_motion)
-                    if init.args.anim_args.hybrid_motion in ['Optical Flow']:
-                        if init.args.anim_args.hybrid_motion_use_prev_img:
-                            flow = call_get_flow_for_hybrid_motion_prev(init, indexes.tween.i - 1, images.previous)
-                            if turbo.is_advance_prev(indexes.tween.i):
-                                turbo.prev.image = image_transform_optical_flow(turbo.prev.image, flow,
-                                                                                step.init.flow_factor())
-                            if turbo.is_advance_next(indexes.tween.i):
-                                turbo.next.image = image_transform_optical_flow(turbo.next.image, flow,
-                                                                                step.init.flow_factor())
-                            init.animation_mode.prev_flow = flow
-                        else:
-                            flow = call_get_flow_for_hybrid_motion(init, indexes.tween.i - 1)
-                            if turbo.is_advance_prev(indexes.tween.i):
-                                turbo.prev.image = image_transform_optical_flow(turbo.prev.image, flow,
-                                                                                step.init.flow_factor())
-                            if turbo.is_advance_next(indexes.tween.i):
-                                turbo.next.image = image_transform_optical_flow(turbo.next.image, flow,
-                                                                                step.init.flow_factor())
-                            init.animation_mode.prev_flow = flow
+                turbo.do_hybrid_video_motion(init, indexes, images)
 
                 # TODO cadence related transforms to be decoupled and handled in a 2nd pass
-                # do optical flow cadence after animation warping
-                if tween_step.cadence_flow is not None:
-                    tween_step.cadence_flow = abs_flow_to_rel_flow(tween_step.cadence_flow, init.width(), init.height())
-                    tween_step.cadence_flow, _ = call_anim_frame_warp(
-                        init, indexes.tween.i, tween_step.cadence_flow, step.depth)
-                    tween_step.cadence_flow_inc = rel_flow_to_abs_flow(
-                        tween_step.cadence_flow, init.width(), init.height()) * tween_step.tween
-                    if turbo.is_advance_prev(indexes.tween.i):
-                        turbo.prev.image = image_transform_optical_flow(
-                            turbo.prev.image, tween_step.cadence_flow_inc, step.init.sub_step.cadence_flow_factor)
-                    if turbo.is_advance_next(indexes.tween.i):
-                        turbo.next.image = image_transform_optical_flow(
-                            turbo.next.image, tween_step.cadence_flow_inc, step.init.sub_step.cadence_flow_factor)
-
-                turbo.prev.index = turbo.next.frame_idx = indexes.tween.i
-
-                if turbo.prev.image is not None and tween_step.tween < 1.0:
-                    img = turbo.prev.image * (1.0 - tween_step.tween) + turbo.next.image * tween_step.tween
-                else:
-                    img = turbo.next.image
+                img = turbo.do_optical_flow_cadence_after_animation_warping(init, indexes, step, tween_step)
 
                 # intercept and override to grayscale
                 if init.args.anim_args.color_force_grayscale:
@@ -213,7 +131,6 @@ def run_render_animation(init):
 
             # do hybrid compositing before motion
             if init.is_hybrid_composite_before_motion():
-                # TODO test, returned args seem unchanged, so might as well be ignored here (renamed to _)
                 _, images.previous = call_hybrid_composite(init, indexes.frame.i, images.previous,
                                                            step.init.hybrid_comp_schedules)
 
@@ -235,7 +152,6 @@ def run_render_animation(init):
 
             # do hybrid compositing after motion (normal)
             if init.is_normal_hybrid_composite():
-                # TODO test, returned args seem unchanged, so might as well be ignored here (renamed to _)
                 _, images.previous = call_hybrid_composite(init, indexes.frame.i, images.previous,
                                                            step.init.hybrid_comp_schedules)
             # apply color matching
@@ -313,7 +229,6 @@ def run_render_animation(init):
             mask.vals['video_mask'] = temp_mask
 
         if init.args.args.use_mask:
-            # TODO figure why this is different from mask.image
             init.args.args.mask_image = call_compose_mask_with_check(
                 init, step.schedule.mask_seq, mask.vals, init.root.init_sample)
             init.args.args.mask_image = compose_mask_with_check(init.root, init.args.args, step.schedule.mask_seq,
@@ -324,8 +239,6 @@ def run_render_animation(init):
         opt_utils.setup(init, step.schedule)
 
         memory_utils.handle_vram_if_depth_is_predicted(init)
-
-        # TODO try init early, also see "call_get_flow_from_images"
         optical_flow_redo_generation = init.args.anim_args.optical_flow_redo_generation \
             if not init.args.args.motion_preview_mode else 'None'
 
@@ -373,7 +286,6 @@ def run_render_animation(init):
         # do hybrid video after generation
         if indexes.frame.i > 0 and init.is_hybrid_composite_after_generation():
             temp_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-            # TODO test, returned args seem unchanged, so might as well be ignored here (renamed to _)
             _, temp_image_2 = call_hybrid_composite(init, indexes.frame.i, temp_image, step.init.hybrid_comp_schedules)
             image = Image.fromarray(cv2.cvtColor(temp_image_2, cv2.COLOR_BGR2RGB))
 
@@ -412,6 +324,10 @@ def run_render_animation(init):
         last_preview_frame = call_render_preview(init, indexes.frame.i, last_preview_frame)
         web_ui_utils.update_status_tracker(init, indexes)
         init.animation_mode.unload_raft_and_depth_model()
+
+
+def emit_in_between_frames():
+    raise NotImplemented("")
 
 
 def generate_depth_maps_if_active(init):
