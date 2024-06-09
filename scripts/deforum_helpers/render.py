@@ -20,14 +20,12 @@ import os
 import PIL
 import cv2
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image
 # noinspection PyUnresolvedReferences
 from modules.shared import opts, state
 
 from .colors import maintain_colors
-from .hybrid_video import (
-    image_transform_ransac, image_transform_optical_flow, abs_flow_to_rel_flow, rel_flow_to_abs_flow)
-from .masks import do_overlay_mask
+from .hybrid_video import image_transform_ransac, image_transform_optical_flow
 from .prompt import prepare_prompt
 from .rendering.data import Turbo, Images, Indexes, Mask
 from .rendering.data.initialization import RenderInit
@@ -41,6 +39,7 @@ from .rendering.util.call.hybrid import (
 from .rendering.util.call.images import call_add_noise, call_get_mask_from_file_with_frame
 from .rendering.util.call.mask import call_compose_mask_with_check, call_unsharp_mask
 from .rendering.util.call.video_and_audio import call_render_preview, call_get_next_frame
+from .rendering.util.image_utils import add_overlay_mask_if_active, force_to_grayscale_if_required, save_cadence_frame
 from .rendering.util.log_utils import (
     print_animation_frame_info, print_tween_frame_info, print_init_frame_info, print_optical_flow_info,
     print_redo_generation_info)
@@ -63,7 +62,6 @@ def run_render_animation(init):
     turbo = Turbo.create(init)  # state for interpolating between diffusion steps
     indexes = Indexes.create(init, turbo)
     mask = Mask.create(init, indexes.frame.i)  # reset mask vals as they are overwritten in the compose_mask algorithm
-
     web_ui_utils.init_job(init)
     last_preview_frame = 0
     while indexes.frame.i < init.args.anim_args.max_frames:
@@ -77,7 +75,7 @@ def run_render_animation(init):
             for tween_index in range(indexes.tween.start, indexes.frame.i):
                 indexes.update_tween(tween_index)
                 web_ui_utils.update_progress_during_cadence(init, indexes)
-                tween_step = TweenStep.create(init, indexes)
+                tween_step = TweenStep.create(indexes)
 
                 turbo.do_optical_flow_cadence_setup_before_animation_warping(init, tween_step)
 
@@ -89,28 +87,13 @@ def run_render_animation(init):
 
                 turbo.do_hybrid_video_motion(init, indexes, images)
 
-                # TODO cadence related transforms to be decoupled and handled in a 2nd pass
-                img = turbo.do_optical_flow_cadence_after_animation_warping(init, indexes, step, tween_step)
-
-                # intercept and override to grayscale
-                if init.args.anim_args.color_force_grayscale:
-                    img = cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2GRAY)
-                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-
-                # overlay mask
-                if init.args.args.overlay_mask and (init.args.anim_args.use_mask_video or init.args.args.use_mask):
-                    img = do_overlay_mask(init.args.args, init.args.anim_args, img, indexes.tween.i, True)
-
-                # get images.previous during cadence
-                images.previous = img
+                img = tween_step.generate_tween_image(init, indexes, step, turbo)
+                images.previous = img  # get images.previous during cadence
 
                 # current image update for cadence frames (left commented because it doesn't currently update the preview)
                 # state.current_image = Image.fromarray(cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2RGB))
 
-                # saving cadence frames
-                filename = filename_utils.tween_frame(init, indexes)
-                save_path = os.path.join(init.args.args.outdir, filename)
-                cv2.imwrite(save_path, img)
+                save_cadence_frame(init, indexes, img)
 
                 if init.args.anim_args.save_depth_maps:
                     dm_save_path = os.path.join(init.output_directory, filename_utils.tween_depth_frame(init, indexes))
@@ -296,14 +279,8 @@ def run_render_animation(init):
             temp_image = maintain_colors(temp_color, images.color_match, init.args.anim_args.color_coherence)
             image = Image.fromarray(cv2.cvtColor(temp_image, cv2.COLOR_BGR2RGB))
 
-        # intercept and override to grayscale
-        if init.args.anim_args.color_force_grayscale:
-            image = ImageOps.grayscale(image)
-            image = ImageOps.colorize(image, black="black", white="white")
-
-        # overlay mask
-        if init.args.args.overlay_mask and (init.args.anim_args.use_mask_video or init.is_use_mask):
-            image = do_overlay_mask(init.args.args, init.args.anim_args, image, indexes.frame.i)
+        image = force_to_grayscale_if_required(init, image)
+        image = add_overlay_mask_if_active(init, image)
 
         # on strength 0, set color match to generation
         if (((not init.args.anim_args.legacy_colormatch and not init.args.args.use_init)

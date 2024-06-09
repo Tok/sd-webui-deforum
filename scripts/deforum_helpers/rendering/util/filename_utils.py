@@ -36,7 +36,7 @@ def depth_frame(init: StepInit, indexes: Indexes) -> str:
     return _frame_filename(init, indexes.frame.i, True)
 
 
-def tween_frame(init: StepInit, indexes: Indexes) -> str:
+def tween_frame_name(init: StepInit, indexes: Indexes) -> str:
     return _frame_filename(init, indexes.tween.i)
 
 
