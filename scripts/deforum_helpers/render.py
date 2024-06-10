@@ -27,16 +27,13 @@ from .colors import maintain_colors
 from .rendering.data import Turbo, Images, Indexes, Mask
 from .rendering.data.initialization import RenderInit
 from .rendering.data.step import Step, TweenStep
-from .rendering.util import memory_utils, filename_utils, opt_utils, web_ui_utils
+from .rendering.util import generate_random_seed, memory_utils, filename_utils, opt_utils, web_ui_utils
 from .rendering.util.call.gen import call_generate
 from .rendering.util.call.hybrid import call_get_flow_from_images, call_hybrid_composite
 from .rendering.util.call.video_and_audio import call_render_preview
 from .rendering.util.fun_utils import pipe
-from .rendering.util.image_utils import (
-    add_overlay_mask_if_active, force_to_grayscale_if_required, save_cadence_frame)
-from .rendering.util.log_utils import (
-    print_animation_frame_info, print_tween_frame_info, print_optical_flow_info,
-    print_redo_generation_info)
+from .rendering.util.image_utils import add_overlay_mask_if_active, force_to_grayscale_if_required
+from .rendering.util.log_utils import print_animation_frame_info, print_optical_flow_info, print_redo_generation_info
 from .rendering.util.utils import context
 from .save_images import save_image
 from .seed import next_seed
@@ -64,35 +61,9 @@ def run_render_animation(init):
         web_ui_utils.update_job(init, indexes)
         step = Step.create(init, indexes)
         step.write_frame_subtitle(init, indexes, turbo)
-        if turbo.is_emit_in_between_frames():  # TODO extract tween frame emition
-            indexes.update_tween_start(turbo)
-            for tween_index in range(indexes.tween.start, indexes.frame.i):
 
-                indexes.update_tween(tween_index)
-                web_ui_utils.update_progress_during_cadence(init, indexes)
-                tween_step = TweenStep.create(indexes)
-
-                turbo.do_optical_flow_cadence_setup_before_animation_warping(init, tween_step)
-
-                step.write_frame_subtitle_if_active(init, indexes, opt_utils)
-                print_tween_frame_info(init, indexes, tween_step.cadence_flow, tween_step.tween)
-
-                step.update_depth_prediction(init, turbo)
-                turbo.advance(init, indexes.tween.i, step.depth)
-
-                turbo.do_hybrid_video_motion(init, indexes, images)
-
-                img = tween_step.generate_tween_image(init, indexes, step, turbo)
-                images.previous = img  # get images.previous during cadence
-
-                # current image update for cadence frames (left commented because it doesn't currently update the preview)
-                # state.current_image = Image.fromarray(cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2RGB))
-
-                save_cadence_frame(init, indexes, img)
-
-                if init.args.anim_args.save_depth_maps:
-                    dm_save_path = os.path.join(init.output_directory, filename_utils.tween_depth_frame(init, indexes))
-                    init.depth_model.save(dm_save_path, step.depth)
+        if turbo.is_emit_in_between_frames():
+            emit_in_between_frames(init, indexes, step, turbo, images)
 
         images.color_match = Step.create_color_match_for_video(init, indexes)
 
@@ -118,7 +89,7 @@ def run_render_animation(init):
         # optical flow redo before generation
         if optical_flow_redo_generation != 'None' and images.previous is not None and step.init.strength > 0:
             stored_seed = init.args.args.seed
-            init.args.args.seed = random.randint(0, 2 ** 32 - 1)  # TODO move elsewhere
+            init.args.args.seed = generate_random_seed()
             print_optical_flow_info(init, optical_flow_redo_generation)
             with context(call_generate(init, indexes.frame.i, step.schedule)) as img:
                 img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
@@ -138,7 +109,7 @@ def run_render_animation(init):
             stored_seed = init.args.args.seed
             for n in range(0, int(init.args.anim_args.diffusion_redo)):
                 print_redo_generation_info(init, n)
-                init.args.args.seed = random.randint(0, 2 ** 32 - 1)  # TODO move elsewhere
+                init.args.args.seed = generate_random_seed()
                 disposable_image = call_generate(init, indexes.frame.i, step.schedule)
                 disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
                 # color match on last one only
@@ -193,8 +164,31 @@ def run_render_animation(init):
         init.animation_mode.unload_raft_and_depth_model()
 
 
-def emit_in_between_frames():
-    raise NotImplemented("")
+def emit_in_between_frames(init, indexes, step, turbo, images):
+    tween_frame_start_i = max(indexes.frame.start, indexes.frame.i - turbo.steps)
+    emit_frames_between_index_pair(init, indexes, step, turbo, images, tween_frame_start_i, indexes.frame.i)
+
+
+def emit_frames_between_index_pair(init, indexes, step, turbo, images, tween_frame_start_i, frame_i):
+    """Emits tween frames (also known as turbo- or cadence-frames) between the provided indicis."""
+    # TODO refactor until this works with just 2 args: RenderInit and a collection of immutable TweenStep objects.
+    indexes.update_tween_start(turbo)
+
+    tween_range = range(tween_frame_start_i, frame_i)
+
+    # TODO Instead of indexes, pass a set of TweenStep objects to be processed instead of creating them in the loop.
+    for tween_index in tween_range:
+        # TODO tween index shouldn't really be updated and passed around like this here.
+        #  ideally provide index data within an immutable TweenStep instance.
+        indexes.update_tween(tween_index)  # TODO Nope
+
+        tween_step = TweenStep.create(indexes)
+
+        TweenStep.handle_synchronous_status_concerns(init, indexes, step, tween_step)
+        TweenStep.process(init, indexes, step, turbo, images, tween_step)
+        new_image = TweenStep.generate_and_save_frame(init, indexes, step, turbo, tween_step)
+
+        images.previous = new_image  # TODO shouldn't
 
 
 def frame_image_transformation_pipe(init, indexes, step, images):
