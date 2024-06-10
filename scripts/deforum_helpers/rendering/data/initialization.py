@@ -2,20 +2,25 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+import cv2
 import numexpr
 import numpy as np
 import pandas as pd
+from PIL import Image
 
-from .data.anim import AnimationKeys, AnimationMode
-from .data.subtitle import Srt
-from .util import memory_utils
-from .util.utils import context
-from ..args import RootArgs
-from ..deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
-from ..depth import DepthModel
-from ..generate import isJson
-from ..parseq_adapter import ParseqAdapter
-from ..settings import save_settings_from_animation_run
+from .anim import AnimationKeys, AnimationMode
+from .subtitle import Srt
+from ..util import memory_utils
+from ..util.call.mask import call_compose_mask_with_check
+from ..util.call.video_and_audio import call_get_next_frame
+from ..util.utils import context
+from ...args import RootArgs
+from ...deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
+from ...depth import DepthModel
+from ...generate import (isJson)
+from ...parseq_adapter import ParseqAdapter
+from ...prompt import prepare_prompt
+from ...settings import save_settings_from_animation_run
 
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
@@ -35,52 +40,6 @@ class RenderInitArgs:
 
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
-class StepInit:
-    noise: Any = None
-    strength: Any = None
-    scale: Any = None
-    contrast: Any = None
-    kernel: int = 0
-    sigma: Any = None
-    amount: Any = None
-    threshold: Any = None
-    cadence_flow_factor: Any = None
-    redo_flow_factor: Any = None
-    hybrid_comp_schedules: Any = None
-
-    def kernel_size(self) -> tuple[int, int]:
-        return self.kernel, self.kernel
-
-    def flow_factor(self):
-        return self.hybrid_comp_schedules['flow_factor']
-
-    @staticmethod
-    def create(deform_keys, i):
-        with context(deform_keys) as keys:
-            return StepInit(keys.noise_schedule_series[i],
-                            keys.strength_schedule_series[i],
-                            keys.cfg_scale_schedule_series[i],
-                            keys.contrast_schedule_series[i],
-                            int(keys.kernel_schedule_series[i]),
-                            keys.sigma_schedule_series[i],
-                            keys.amount_schedule_series[i],
-                            keys.threshold_schedule_series[i],
-                            keys.cadence_flow_factor_schedule_series[i],
-                            keys.redo_flow_factor_schedule_series[i],
-                            StepInit._hybrid_comp_args(keys, i))
-
-    @staticmethod
-    def _hybrid_comp_args(keys, i):
-        return {
-            "alpha": keys.hybrid_comp_alpha_schedule_series[i],
-            "mask_blend_alpha": keys.hybrid_comp_mask_blend_alpha_schedule_series[i],
-            "mask_contrast": keys.hybrid_comp_mask_contrast_schedule_series[i],
-            "mask_auto_contrast_cutoff_low": int(keys.hybrid_comp_mask_auto_contrast_cutoff_low_schedule_series[i]),
-            "mask_auto_contrast_cutoff_high": int(keys.hybrid_comp_mask_auto_contrast_cutoff_high_schedule_series[i]),
-            "flow_factor": keys.hybrid_flow_factor_schedule_series[i]}
-
-
-@dataclass(init=True, frozen=True, repr=False, eq=False)
 class RenderInit:
     """The purpose of this class is to group and control all data used in render_animation"""
     root: RootArgs
@@ -97,6 +56,12 @@ class RenderInit:
 
     def is_3d(self):
         return self.args.anim_args.animation_mode == '3D'
+
+    def is_3d_or_2d(self):
+        return self.args.anim_args.animation_mode in ['2D', '3D']
+
+    def has_optical_flow_cadence(self):
+        return self.args.anim_args.optical_flow_cadence != 'None'
 
     def is_3d_with_med_or_low_vram(self):
         return self.is_3d() and memory_utils.is_low_or_med_vram()
@@ -165,6 +130,87 @@ class RenderInit:
 
     def is_using_init_image_or_box(self) -> bool:
         return self.args.args.use_init and self._has_init_image_or_box()
+
+    def update_sample_and_args_for_current_progression_step(self, step, noised_image):
+        # use transformed previous frame as init for current
+        self.args.args.use_init = True
+        self.root.init_sample = Image.fromarray(cv2.cvtColor(noised_image, cv2.COLOR_BGR2RGB))
+        self.args.args.strength = max(0.0, min(1.0, step.init.strength))
+
+    def update_some_args_for_current_step(self, indexes, step):
+        i = indexes.frame.i
+        keys = self.animation_keys.deform_keys
+        # Pix2Pix Image CFG Scale - does *nothing* with non pix2pix checkpoints
+        self.args.args.pix2pix_img_cfg_scale = float(keys.pix2pix_img_cfg_scale_series[i])
+        self.args.args.prompt = self.prompt_series[i]  # grab prompt for current frame
+        self.args.args.scale = step.init.scale
+
+    def update_seed_and_checkpoint_for_current_step(self, indexes):
+        i = indexes.frame.i
+        keys = self.animation_keys.deform_keys
+        is_seed_scheduled = self.args.args.seed_behavior == 'schedule'
+        is_seed_managed = self.parseq_adapter.manages_seed()
+        is_seed_scheduled_or_managed = is_seed_scheduled or is_seed_managed
+        if is_seed_scheduled_or_managed:
+            self.args.args.seed = int(keys.seed_schedule_series[i])
+        self.args.args.checkpoint = keys.checkpoint_schedule_series[i] \
+            if self.args.anim_args.enable_checkpoint_scheduling else None
+
+    def update_sub_seed_schedule_for_current_step(self, indexes):
+        i = indexes.frame.i
+        keys = self.animation_keys.deform_keys
+        is_subseed_scheduling_enabled = self.args.anim_args.enable_subseed_scheduling
+        is_seed_managed_by_parseq = self.parseq_adapter.manages_seed()
+        if is_subseed_scheduling_enabled or is_seed_managed_by_parseq:
+            self.root.subseed = int(keys.subseed_schedule_series[i])
+        if is_subseed_scheduling_enabled and not is_seed_managed_by_parseq:
+            self.root.subseed_strength = float(keys.subseed_strength_schedule_series[i])
+        if is_seed_managed_by_parseq:
+            self.root.subseed_strength = keys.subseed_strength_schedule_series[i]  # TODO not sure why not type-coerced.
+            self.args.anim_args.enable_subseed_scheduling = True  # TODO should be enforced in init, not here.
+
+    def prompt_for_current_step(self, indexes):
+        """returns value to be set back into the prompt"""
+        prompt = self.args.args.prompt
+        max_frames = self.args.anim_args.max_frames
+        seed = self.args.args.seed
+        i = indexes.frame.i
+        return prepare_prompt(prompt, max_frames, seed, i)
+
+    def _update_video_input_for_current_frame(self, i, step):
+        video_init_path = self.args.anim_args.video_init_path
+        init_frame = call_get_next_frame(init, i, video_init_path)
+        print_init_frame_info(init_frame)
+        self.args.args.init_image = init_frame
+        self.args.args.init_image_box = None  # init_image_box not used in this case
+        self.args.args.strength = max(0.0, min(1.0, step.init.strength))
+
+    def _update_video_mask_for_current_frame(self, i):
+        video_mask_path = self.args.anim_args.video_mask_path
+        is_mask = True
+        mask_init_frame = call_get_next_frame(self, i, video_mask_path, is_mask)
+        new_mask = call_get_mask_from_file_with_frame(self, mask_init_frame)
+        self.args.args.mask_file = new_mask
+        self.root.noise_mask = new_mask
+        mask.vals['video_mask'] = new_mask
+
+    def update_video_data_for_current_frame(self, indexes, step):
+        i = indexes.frame.i
+        if self.animation_mode.has_video_input:
+            self._update_video_input_for_current_frame(i, step)
+        if self.args.anim_args.use_mask_video:
+            self._update_video_mask_for_current_frame(i)
+
+    def update_mask_image(self, step, mask):
+        is_use_mask = self.args.args.use_mask
+        if is_use_mask:
+            has_sample = self.root.init_sample is not None
+            if has_sample:
+                mask_seq = step.schedule.mask_seq
+                sample = init.root.init_sample
+                self.args.args.mask_image = call_compose_mask_with_check(self, mask_seq, mask.vals, sample)
+            else:
+                self.args.args.mask_image = None  # we need it only after the first frame anyway
 
     @staticmethod
     def create_output_directory_for_the_batch(directory):

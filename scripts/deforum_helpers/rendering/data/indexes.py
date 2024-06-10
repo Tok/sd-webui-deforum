@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 
-@dataclass(init=True, frozen=False, repr=True, eq=True)
+@dataclass(init=True, frozen=True, repr=True, eq=True)
 class IndexWithStart:
     start: int = 0
     i: int = 0
@@ -14,6 +14,16 @@ class Indexes:
 
     @staticmethod
     def create(init, turbo):
-        frame = IndexWithStart(turbo.find_start(init, turbo), 0)
-        tween = IndexWithStart(0, 0)
-        return Indexes(frame, tween)
+        frame_start = turbo.find_start(init, turbo)
+        tween_start = 0
+        return Indexes(IndexWithStart(frame_start, 0), IndexWithStart(tween_start, 0))
+
+    def update_tween(self, i: int):
+        self.tween = IndexWithStart(self.tween.start, i)
+
+    def update_tween_start(self, turbo):
+        tween_start = max(self.frame.start, self.frame.i - turbo.steps)
+        self.tween = IndexWithStart(tween_start, self.tween.i)
+
+    def update_frame(self, i: int):
+        self.frame = IndexWithStart(self.frame.start, i)

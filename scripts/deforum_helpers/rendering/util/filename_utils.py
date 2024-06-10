@@ -1,8 +1,9 @@
 from enum import Enum
-from ..initialization import StepInit
-from ..data import Indexes
-from ...video_audio_utilities import get_frame_name
 from pathlib import Path
+
+from ..data import Indexes
+from ..data.step import StepInit
+from ...video_audio_utilities import get_frame_name
 
 
 class FileFormat(Enum):
@@ -35,7 +36,7 @@ def depth_frame(init: StepInit, indexes: Indexes) -> str:
     return _frame_filename(init, indexes.frame.i, True)
 
 
-def tween_frame(init: StepInit, indexes: Indexes) -> str:
+def tween_frame_name(init: StepInit, indexes: Indexes) -> str:
     return _frame_filename(init, indexes.tween.i)
 
 
