@@ -83,6 +83,10 @@ class Step:
         schedule = Schedule.create(init, indexes.frame.i, init.args.anim_args, init.args.args)
         return Step(step_init, schedule, None, None, "")
 
+    def is_optical_flow_redo_before_generation(self, optical_flow_redo_generation, images):
+        has_flow_redo = optical_flow_redo_generation != 'None'
+        return has_flow_redo and images.has_previous() and self.init.has_strength()
+
     def update_depth_prediction(self, init: RenderInit, turbo: Turbo):
         has_depth = init.depth_model is not None
         has_next = turbo.next.image is not None

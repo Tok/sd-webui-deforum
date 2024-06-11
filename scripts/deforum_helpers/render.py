@@ -34,7 +34,6 @@ from .rendering.util.call.video_and_audio import call_render_preview
 from .rendering.util.fun_utils import tube
 from .rendering.util.image_utils import add_overlay_mask_if_active, force_to_grayscale_if_required
 from .rendering.util.log_utils import print_animation_frame_info, print_optical_flow_info, print_redo_generation_info
-from .rendering.util.utils import context
 from .save_images import save_image
 from .seed import next_seed
 
@@ -67,10 +66,10 @@ def run_render_animation(init):
 
         images.color_match = Step.create_color_match_for_video(init, indexes)
 
-        if images.previous is not None:  # skipping 1st iteration
-            images.previous = frame_image_transformation_tube(init, indexes, step, images)(images.previous)
-            contrast_image = contrast_image_transformation_tube(init, step, mask)(images.previous)
-            noised_image = noise_image_transformation_tube(init, step)(contrast_image)
+        # transform image
+        if images.has_previous():  # skipping 1st iteration
+            frame_tube, contrast_tube, noise_tube = image_transformation_tubes(init, indexes, step, images, mask)
+            images.previous, noised_image = run_tubes(frame_tube, contrast_tube, noise_tube, images.previous)
             init.update_sample_and_args_for_current_progression_step(step, noised_image)
 
         init.update_some_args_for_current_step(indexes, step)
@@ -83,43 +82,45 @@ def run_render_animation(init):
         opt_utils.setup(init, step.schedule)
 
         memory_utils.handle_vram_if_depth_is_predicted(init)
-        optical_flow_redo_generation = init.args.anim_args.optical_flow_redo_generation \
-            if not init.args.args.motion_preview_mode else 'None'
 
-        # optical flow redo before generation
-        if optical_flow_redo_generation != 'None' and images.previous is not None and step.init.strength > 0:
+        # optical flow
+        optical_flow_redo_generation = init.optical_flow_redo_generation_if_not_in_preview_mode()
+        if step.is_optical_flow_redo_before_generation(optical_flow_redo_generation, images):
+            # TODO create and move to optical_flow_redo_before_generation?
             stored_seed = init.args.args.seed
             init.args.args.seed = generate_random_seed()
             print_optical_flow_info(init, optical_flow_redo_generation)
-            with context(call_generate(init, indexes.frame.i, step.schedule)) as img:
-                img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-                disposable_flow = call_get_flow_from_images(init, images.previous, img, optical_flow_redo_generation)
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                img = image_transform_optical_flow(img, disposable_flow, step.init.redo_flow_factor)
-                init.args.args.seed = stored_seed  # TODO check if (or make) unnecessary and group seeds
-                init.args.root.init_sample = Image.fromarray(img)
-                disposable_image = img  # TODO refactor
-                del (img, disposable_flow, stored_seed)
-                gc.collect()
+
+            # TODO create and move to optical_flow_redo_tube
+            img = call_generate(init, indexes.frame.i, step.schedule)
+            img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+            optical_flow = call_get_flow_from_images(init, images.previous, img, optical_flow_redo_generation)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = image_transform_optical_flow(img, optical_flow, step.init.redo_flow_factor)
+
+            init.args.args.seed = stored_seed  # TODO check if (or make) unnecessary and group seeds
+            init.args.root.init_sample = Image.fromarray(img)
+            gc.collect()
 
         # diffusion redo
-        if (int(init.args.anim_args.diffusion_redo) > 0
-                and images.previous is not None and step.init.strength > 0
-                and not init.args.args.motion_preview_mode):
+        is_diffusion_redo = init.has_positive_diffusion_redo and images.has_previous() and step.init.has_strength()
+        is_not_preview = init.is_not_in_motion_preview_mode()
+        if is_diffusion_redo and is_not_preview:
             stored_seed = init.args.args.seed
-            for n in range(0, int(init.args.anim_args.diffusion_redo)):
+            last_diffusion_redo_index = int(init.args.anim_args.diffusion_redo)
+            for n in range(0, last_diffusion_redo_index):
                 print_redo_generation_info(init, n)
                 init.args.args.seed = generate_random_seed()
-                disposable_image = call_generate(init, indexes.frame.i, step.schedule)
-                disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
+                diffusion_redo_image = call_generate(init, indexes.frame.i, step.schedule)
+                diffusion_redo_image = cv2.cvtColor(np.array(diffusion_redo_image), cv2.COLOR_RGB2BGR)
                 # color match on last one only
-                if n == int(init.args.anim_args.diffusion_redo):
-                    disposable_image = maintain_colors(images.previous, images.color_match,
-                                                       init.args.anim_args.color_coherence)
+                is_last_iteration = n == last_diffusion_redo_index
+                if is_last_iteration:
+                    mode = init.args.anim_args.color_coherence
+                    diffusion_redo_image = maintain_colors(images.previous, images.color_match, mode)
                 init.args.args.seed = stored_seed
-                init.args.root.init_sample = Image.fromarray(cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB))
-            del (disposable_image, stored_seed)
-            gc.collect()  # TODO try to eventually kick the gc only once at the end of every generation, iteration.
+                init.args.root.init_sample = Image.fromarray(cv2.cvtColor(diffusion_redo_image, cv2.COLOR_BGR2RGB))
+            gc.collect()
 
         # generation
         image = call_generate(init, indexes.frame.i, step.schedule)
@@ -191,7 +192,21 @@ def emit_frames_between_index_pair(init, indexes, step, turbo, images, tween_fra
         images.previous = new_image  # TODO shouldn't
 
 
-def frame_image_transformation_tube(init, indexes, step, images):
+def image_transformation_tubes(init, indexes, step, images, mask):
+    return (frame_transformation_tube(init, indexes, step, images),
+            contrast_transformation_tube(init, step, mask),
+            noise_transformation_tube(init, step))
+
+
+def run_tubes(frame_tube, contrast_tube, noise_tube, original_image):
+    transformed_image = frame_tube(original_image)
+    contrasted_image = contrast_tube(transformed_image)
+    noised_image = noise_tube(contrasted_image)
+    return transformed_image, noised_image
+
+
+# Image transformation tubes
+def frame_transformation_tube(init, indexes, step, images):
     # make sure `im` stays the last argument in each call.
     return tube(lambda im: step.apply_frame_warp_transform(init, indexes, im),
                 lambda im: step.do_hybrid_compositing_before_motion(init, indexes, im),
@@ -202,12 +217,12 @@ def frame_image_transformation_tube(init, indexes, step, images):
                 lambda im: Step.transform_to_grayscale_if_active(init, images, im))
 
 
-def contrast_image_transformation_tube(init, step, mask):
+def contrast_transformation_tube(init, step, mask):
     return tube(lambda im: step.apply_scaling(im),
                 lambda im: step.apply_anti_blur(init, mask, im))
 
 
-def noise_image_transformation_tube(init, step):
+def noise_transformation_tube(init, step):
     return tube(lambda im: step.apply_frame_noising(init, step, im))
 
 

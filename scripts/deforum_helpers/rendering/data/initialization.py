@@ -168,12 +168,15 @@ class RenderInit:
     def diffusion_redo_as_int(self):
         return int(self.diffusion_redo())
 
+    def has_positive_diffusion_redo(self):
+        return self.diffusion_redo_as_int() > 0
+
     def optical_flow_redo_generation(self):
         return self.args.anim_args.optical_flow_redo_generation
 
-    def optical_flow_redo_generation_steps_if_not_in_preview_mode(self):
+    def optical_flow_redo_generation_if_not_in_preview_mode(self):
         is_not_preview = self.is_not_in_motion_preview_mode()
-        return self.optical_flow_redo_generation() if is_not_preview else None
+        return self.optical_flow_redo_generation() if is_not_preview else 'None'  # don't replace with None value
 
     def is_do_color_match_conversion(self, step):
         is_legacy_cm = self.args.anim_args.legacy_colormatch
@@ -218,7 +221,7 @@ class RenderInit:
         if is_subseed_scheduling_enabled and not is_seed_managed_by_parseq:
             self.args.root.subseed_strength = float(keys.subseed_strength_schedule_series[i])
         if is_seed_managed_by_parseq:
-            self.args.root.subseed_strength = keys.subseed_strength_schedule_series[i]  # TODO not sure why not type-coerced.
+            self.args.root.subseed_strength = keys.subseed_strength_schedule_series[i]
             self.args.anim_args.enable_subseed_scheduling = True  # TODO should be enforced in init, not here.
 
     def prompt_for_current_step(self, indexes):
@@ -335,4 +338,3 @@ class RenderInit:
     @staticmethod
     def maybe_resume_from_timestring(anim_args, root):
         root.timestring = anim_args.resume_timestring if anim_args.resume_from_timestring else root.timestring
-
