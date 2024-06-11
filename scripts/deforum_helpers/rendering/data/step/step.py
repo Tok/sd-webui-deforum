@@ -7,6 +7,7 @@ import numpy as np
 from ..initialization import RenderInit
 from ..schedule import Schedule
 from ..turbo import Turbo
+from ...util import opt_utils
 from ...util.call.anim import call_anim_frame_warp
 from ...util.call.hybrid import (
     call_get_flow_for_hybrid_motion, call_get_flow_for_hybrid_motion_prev,
@@ -38,6 +39,9 @@ class StepInit:
 
     def flow_factor(self):
         return self.hybrid_comp_schedules['flow_factor']
+
+    def has_strength(self):
+        return self.strength > 0
 
     @staticmethod
     def create(deform_keys, i):
@@ -79,13 +83,17 @@ class Step:
         schedule = Schedule.create(init, indexes.frame.i, init.args.anim_args, init.args.args)
         return Step(step_init, schedule, None, None, "")
 
+    def is_optical_flow_redo_before_generation(self, optical_flow_redo_generation, images):
+        has_flow_redo = optical_flow_redo_generation != 'None'
+        return has_flow_redo and images.has_previous() and self.init.has_strength()
+
     def update_depth_prediction(self, init: RenderInit, turbo: Turbo):
         has_depth = init.depth_model is not None
         has_next = turbo.next.image is not None
         if has_depth and has_next:
             image = turbo.next.image
             weight = init.args.anim_args.midas_weight
-            precision = init.root.half_precision
+            precision = init.args.root.half_precision
             self.depth = init.depth_model.predict(image, weight, precision)
 
     def write_frame_subtitle(self, init, indexes, turbo):
@@ -94,7 +102,7 @@ class Step:
             self.subtitle_params_string = call_format_animation_params(init, indexes.frame.i, params_to_print)
             call_write_frame_subtitle(init, indexes.frame.i, params_string)
 
-    def write_frame_subtitle_if_active(self, init, indexes, opt_utils):
+    def write_frame_subtitle_if_active(self, init, indexes):
         if opt_utils.is_generate_subtitles(init):
             self.subtitle_params_to_print = opt_utils.generation_info_for_subtitles(init)
             self.subtitle_params_string = call_format_animation_params(init, indexes.tween.i, params_to_print)
@@ -135,7 +143,7 @@ class Step:
         if is_use_any_mask:
             seq = self.schedule.noise_mask_seq
             vals = mask.noise_vals
-            init.root.noise_mask = call_compose_mask_with_check(init, seq, vals, contrast_image)
+            init.args.root.noise_mask = call_compose_mask_with_check(init, seq, vals, contrast_image)
         return call_add_noise(init, self, image)
 
     @staticmethod

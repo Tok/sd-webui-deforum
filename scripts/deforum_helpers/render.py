@@ -27,17 +27,13 @@ from .colors import maintain_colors
 from .rendering.data import Turbo, Images, Indexes, Mask
 from .rendering.data.initialization import RenderInit
 from .rendering.data.step import Step, TweenStep
-from .rendering.util import memory_utils, filename_utils, opt_utils, web_ui_utils
+from .rendering.util import generate_random_seed, memory_utils, filename_utils, opt_utils, web_ui_utils
 from .rendering.util.call.gen import call_generate
 from .rendering.util.call.hybrid import call_get_flow_from_images, call_hybrid_composite
 from .rendering.util.call.video_and_audio import call_render_preview
-from .rendering.util.fun_utils import pipe
-from .rendering.util.image_utils import (
-    add_overlay_mask_if_active, force_to_grayscale_if_required, save_cadence_frame)
-from .rendering.util.log_utils import (
-    print_animation_frame_info, print_tween_frame_info, print_optical_flow_info,
-    print_redo_generation_info)
-from .rendering.util.utils import context
+from .rendering.util.fun_utils import tube
+from .rendering.util.image_utils import add_overlay_mask_if_active, force_to_grayscale_if_required
+from .rendering.util.log_utils import print_animation_frame_info, print_optical_flow_info, print_redo_generation_info
 from .save_images import save_image
 from .seed import next_seed
 
@@ -64,42 +60,16 @@ def run_render_animation(init):
         web_ui_utils.update_job(init, indexes)
         step = Step.create(init, indexes)
         step.write_frame_subtitle(init, indexes, turbo)
-        if turbo.is_emit_in_between_frames():  # TODO extract tween frame emition
-            indexes.update_tween_start(turbo)
-            for tween_index in range(indexes.tween.start, indexes.frame.i):
 
-                indexes.update_tween(tween_index)
-                web_ui_utils.update_progress_during_cadence(init, indexes)
-                tween_step = TweenStep.create(indexes)
-
-                turbo.do_optical_flow_cadence_setup_before_animation_warping(init, tween_step)
-
-                step.write_frame_subtitle_if_active(init, indexes, opt_utils)
-                print_tween_frame_info(init, indexes, tween_step.cadence_flow, tween_step.tween)
-
-                step.update_depth_prediction(init, turbo)
-                turbo.advance(init, indexes.tween.i, step.depth)
-
-                turbo.do_hybrid_video_motion(init, indexes, images)
-
-                img = tween_step.generate_tween_image(init, indexes, step, turbo)
-                images.previous = img  # get images.previous during cadence
-
-                # current image update for cadence frames (left commented because it doesn't currently update the preview)
-                # state.current_image = Image.fromarray(cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2RGB))
-
-                save_cadence_frame(init, indexes, img)
-
-                if init.args.anim_args.save_depth_maps:
-                    dm_save_path = os.path.join(init.output_directory, filename_utils.tween_depth_frame(init, indexes))
-                    init.depth_model.save(dm_save_path, step.depth)
+        if turbo.is_emit_in_between_frames():
+            emit_in_between_frames(init, indexes, step, turbo, images)
 
         images.color_match = Step.create_color_match_for_video(init, indexes)
 
-        if images.previous is not None:  # skipping 1st iteration
-            images.previous = frame_image_transformation_pipe(init, indexes, step, images)(images.previous)
-            contrast_image = contrast_image_transformation_pipe(init, step, mask)(images.previous)
-            noised_image = noise_image_transformation_pipe(init, step)(contrast_image)
+        # transform image
+        if images.has_previous():  # skipping 1st iteration
+            frame_tube, contrast_tube, noise_tube = image_transformation_tubes(init, indexes, step, images, mask)
+            images.previous, noised_image = run_tubes(frame_tube, contrast_tube, noise_tube, images.previous)
             init.update_sample_and_args_for_current_progression_step(step, noised_image)
 
         init.update_some_args_for_current_step(indexes, step)
@@ -112,48 +82,50 @@ def run_render_animation(init):
         opt_utils.setup(init, step.schedule)
 
         memory_utils.handle_vram_if_depth_is_predicted(init)
-        optical_flow_redo_generation = init.args.anim_args.optical_flow_redo_generation \
-            if not init.args.args.motion_preview_mode else 'None'
 
-        # optical flow redo before generation
-        if optical_flow_redo_generation != 'None' and images.previous is not None and step.init.strength > 0:
+        # optical flow
+        optical_flow_redo_generation = init.optical_flow_redo_generation_if_not_in_preview_mode()
+        if step.is_optical_flow_redo_before_generation(optical_flow_redo_generation, images):
+            # TODO create and move to optical_flow_redo_before_generation?
             stored_seed = init.args.args.seed
-            init.args.args.seed = random.randint(0, 2 ** 32 - 1)  # TODO move elsewhere
+            init.args.args.seed = generate_random_seed()
             print_optical_flow_info(init, optical_flow_redo_generation)
-            with context(call_generate(init, indexes.frame.i, step.schedule)) as img:
-                img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-                disposable_flow = call_get_flow_from_images(init, images.previous, img, optical_flow_redo_generation)
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                img = image_transform_optical_flow(img, disposable_flow, step.init.redo_flow_factor)
-                init.args.args.seed = stored_seed  # TODO check if (or make) unnecessary and group seeds
-                init.root.init_sample = Image.fromarray(img)
-                disposable_image = img  # TODO refactor
-                del (img, disposable_flow, stored_seed)
-                gc.collect()
+
+            # TODO create and move to optical_flow_redo_tube
+            img = call_generate(init, indexes.frame.i, step.schedule)
+            img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+            optical_flow = call_get_flow_from_images(init, images.previous, img, optical_flow_redo_generation)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = image_transform_optical_flow(img, optical_flow, step.init.redo_flow_factor)
+
+            init.args.args.seed = stored_seed  # TODO check if (or make) unnecessary and group seeds
+            init.args.root.init_sample = Image.fromarray(img)
+            gc.collect()
 
         # diffusion redo
-        if (int(init.args.anim_args.diffusion_redo) > 0
-                and images.previous is not None and step.init.strength > 0
-                and not init.args.args.motion_preview_mode):
+        is_diffusion_redo = init.has_positive_diffusion_redo and images.has_previous() and step.init.has_strength()
+        is_not_preview = init.is_not_in_motion_preview_mode()
+        if is_diffusion_redo and is_not_preview:
             stored_seed = init.args.args.seed
-            for n in range(0, int(init.args.anim_args.diffusion_redo)):
+            last_diffusion_redo_index = int(init.args.anim_args.diffusion_redo)
+            for n in range(0, last_diffusion_redo_index):
                 print_redo_generation_info(init, n)
-                init.args.args.seed = random.randint(0, 2 ** 32 - 1)  # TODO move elsewhere
-                disposable_image = call_generate(init, indexes.frame.i, step.schedule)
-                disposable_image = cv2.cvtColor(np.array(disposable_image), cv2.COLOR_RGB2BGR)
+                init.args.args.seed = generate_random_seed()
+                diffusion_redo_image = call_generate(init, indexes.frame.i, step.schedule)
+                diffusion_redo_image = cv2.cvtColor(np.array(diffusion_redo_image), cv2.COLOR_RGB2BGR)
                 # color match on last one only
-                if n == int(init.args.anim_args.diffusion_redo):
-                    disposable_image = maintain_colors(images.previous, images.color_match,
-                                                       init.args.anim_args.color_coherence)
+                is_last_iteration = n == last_diffusion_redo_index
+                if is_last_iteration:
+                    mode = init.args.anim_args.color_coherence
+                    diffusion_redo_image = maintain_colors(images.previous, images.color_match, mode)
                 init.args.args.seed = stored_seed
-                init.root.init_sample = Image.fromarray(cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB))
-            del (disposable_image, stored_seed)
-            gc.collect()  # TODO try to eventually kick the gc only once at the end of every generation, iteration.
+                init.args.root.init_sample = Image.fromarray(cv2.cvtColor(diffusion_redo_image, cv2.COLOR_BGR2RGB))
+            gc.collect()
 
         # generation
         image = call_generate(init, indexes.frame.i, step.schedule)
 
-        if image is None:
+        if image is None:  # TODO throw error or log warning or something
             break
 
         # do hybrid video after generation
@@ -187,19 +159,56 @@ def run_render_animation(init):
 
         state.assign_current_image(image)
         # may reassign init.args.args and/or root.seed_internal
-        init.args.args.seed = next_seed(init.args.args, init.root)  # TODO group all seeds and sub-seeds
+        init.args.args.seed = next_seed(init.args.args, init.args.root)  # TODO group all seeds and sub-seeds
         last_preview_frame = call_render_preview(init, indexes.frame.i, last_preview_frame)
         web_ui_utils.update_status_tracker(init, indexes)
         init.animation_mode.unload_raft_and_depth_model()
 
 
-def emit_in_between_frames():
-    raise NotImplemented("")
+def emit_in_between_frames(init, indexes, step, turbo, images):
+    tween_frame_start_i = max(indexes.frame.start, indexes.frame.i - turbo.steps)
+    emit_frames_between_index_pair(init, indexes, step, turbo, images, tween_frame_start_i, indexes.frame.i)
 
 
-def frame_image_transformation_pipe(init, indexes, step, images):
+def emit_frames_between_index_pair(init, indexes, step, turbo, images, tween_frame_start_i, frame_i):
+    """Emits tween frames (also known as turbo- or cadence-frames) between the provided indicis."""
+    # TODO refactor until this works with just 2 args: RenderInit and a collection of immutable TweenStep objects.
+    indexes.update_tween_start(turbo)
+
+    tween_range = range(tween_frame_start_i, frame_i)
+
+    # TODO Instead of indexes, pass a set of TweenStep objects to be processed instead of creating them in the loop.
+    for tween_index in tween_range:
+        # TODO tween index shouldn't really be updated and passed around like this here.
+        #  ideally provide index data within an immutable TweenStep instance.
+        indexes.update_tween(tween_index)  # TODO Nope
+
+        tween_step = TweenStep.create(indexes)
+
+        TweenStep.handle_synchronous_status_concerns(init, indexes, step, tween_step)
+        TweenStep.process(init, indexes, step, turbo, images, tween_step)
+        new_image = TweenStep.generate_and_save_frame(init, indexes, step, turbo, tween_step)
+
+        images.previous = new_image  # TODO shouldn't
+
+
+def image_transformation_tubes(init, indexes, step, images, mask):
+    return (frame_transformation_tube(init, indexes, step, images),
+            contrast_transformation_tube(init, step, mask),
+            noise_transformation_tube(init, step))
+
+
+def run_tubes(frame_tube, contrast_tube, noise_tube, original_image):
+    transformed_image = frame_tube(original_image)
+    contrasted_image = contrast_tube(transformed_image)
+    noised_image = noise_tube(contrasted_image)
+    return transformed_image, noised_image
+
+
+# Image transformation tubes
+def frame_transformation_tube(init, indexes, step, images):
     # make sure `im` stays the last argument in each call.
-    return pipe(lambda im: step.apply_frame_warp_transform(init, indexes, im),
+    return tube(lambda im: step.apply_frame_warp_transform(init, indexes, im),
                 lambda im: step.do_hybrid_compositing_before_motion(init, indexes, im),
                 lambda im: Step.apply_hybrid_motion_ransac_transform(init, indexes, images, im),
                 lambda im: Step.apply_hybrid_motion_optical_flow(init, indexes, images, im),
@@ -208,20 +217,20 @@ def frame_image_transformation_pipe(init, indexes, step, images):
                 lambda im: Step.transform_to_grayscale_if_active(init, images, im))
 
 
-def contrast_image_transformation_pipe(init, step, mask):
-    return pipe(lambda im: step.apply_scaling(im),
+def contrast_transformation_tube(init, step, mask):
+    return tube(lambda im: step.apply_scaling(im),
                 lambda im: step.apply_anti_blur(init, mask, im))
 
 
-def noise_image_transformation_pipe(init, step):
-    return pipe(lambda im: step.apply_frame_noising(init, step, im))
+def noise_transformation_tube(init, step):
+    return tube(lambda im: step.apply_frame_noising(init, step, im))
 
 
 def generate_depth_maps_if_active(init):
     # TODO move all depth related stuff to new class.
     if init.args.anim_args.save_depth_maps:
         memory_utils.handle_vram_before_depth_map_generation(init)
-        depth = init.depth_model.predict(opencv_image, init.args.anim_args.midas_weight, init.root.half_precision)
+        depth = init.depth_model.predict(opencv_image, init.args.anim_args.midas_weight, init.args.root.half_precision)
         depth_filename = filename_utils.depth_frame(init, idx)
         init.depth_model.save(os.path.join(init.output_directory, depth_filename), depth)
         memory_utils.handle_vram_after_depth_map_generation(init)
@@ -234,6 +243,6 @@ def progress_step(init, idx, turbo, opencv_image, image, depth):
         return idx.frame.i + turbo.progress_step(idx, opencv_image), depth
     else:
         filename = filename_utils.frame(init, idx)
-        save_image(image, 'PIL', filename, init.args.args, init.args.video_args, init.root)
+        save_image(image, 'PIL', filename, init.args.args, init.args.video_args, init.args.root)
         depth = generate_depth_maps_if_active(init)
         return idx.frame.i + 1, depth  # normal (i.e. 'non-turbo') step always increments by 1.

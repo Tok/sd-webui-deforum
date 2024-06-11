@@ -25,7 +25,7 @@ def _frame_filename_index(i: int, file_format: FileFormat) -> str:
 
 def _frame_filename(init: StepInit, i: int, is_depth=False, file_format=FileFormat.frame_format()) -> str:
     infix = "_depth_" if is_depth else "_"
-    return f"{init.root.timestring}{infix}{_frame_filename_index(i, file_format)}"
+    return f"{init.args.root.timestring}{infix}{_frame_filename_index(i, file_format)}"
 
 
 def frame(init: StepInit, indexes: Indexes) -> str:

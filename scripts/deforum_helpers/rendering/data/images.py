@@ -9,6 +9,9 @@ class Images:
     previous: MatLike = None
     color_match: MatLike = None
 
+    def has_previous(self):
+        return self.previous is not None
+
     @staticmethod
     def _load_color_match_sample(init) -> MatLike:
         """get color match for 'Image' color coherence only once, before loop"""

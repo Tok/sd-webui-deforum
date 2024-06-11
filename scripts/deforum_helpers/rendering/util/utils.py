@@ -1,4 +1,6 @@
+import random
 from contextlib import contextmanager
+
 from PIL import Image
 
 
@@ -55,3 +57,7 @@ def call_or_use_on_cond(condition, callable_or_value):
 
 def create_img(dimensions):
     return Image.new('1', dimensions, 1)
+
+
+def generate_random_seed():
+    return random.randint(0, 2 ** 32 - 1)

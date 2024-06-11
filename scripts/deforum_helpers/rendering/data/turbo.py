@@ -91,7 +91,7 @@ class Turbo:
             matrix = call_get_matrix_for_hybrid_motion(init, indexes.tween.i - 1)
             turbo.advance_ransac_trasform(init, matrix)
 
-    def do_optical_flow_cadence_setup_before_animation_warping(self, init, tween_step):
+    def advance_optical_flow_cadence_before_animation_warping(self, init, tween_step):
         if init.is_3d_or_2d() and init.has_optical_flow_cadence():
             has_tween_schedule = init.animation_keys.deform_keys.strength_schedule_series[indexes.tween.start.i] > 0
             has_images = self.prev.image is not None and self.next.image is not None
@@ -106,7 +106,8 @@ class Turbo:
 
     def do_optical_flow_cadence_after_animation_warping(self, init, indexes, step, tween_step):
         if tween_step.cadence_flow is not None:
-            temp_flow = abs_flow_to_rel_flow(tween_step.flow, init.width(), init.height())
+            # TODO Calculate all increments before running the generation (and try to avoid abs->rel->abc conversions).
+            temp_flow = abs_flow_to_rel_flow(tween_step.cadence_flow, init.width(), init.height())
             new_flow, _ = call_anim_frame_warp(init, indexes.tween.i, temp_flow, step.depth)
             tween_step.cadence_flow = new_flow
             abs_flow = rel_flow_to_abs_flow(tween_step.cadence_flow, init.width(), init.height())

@@ -5,9 +5,8 @@ def print_animation_frame_info(init, indexes):
 
 
 def print_tween_frame_info(init, indexes, cadence_flow, tween):
-    msg_flow_name = '' if cadence_flow is None \
-        else init.args.anim_args.optical_flow_cadence + ' optical flow '
-    msg_frame_info = f"cadence frame: {indexes.tween.i}; tween:{tween:0.2f};"
+    msg_flow_name = '' if cadence_flow is None else init.args.anim_args.optical_flow_cadence + ' optical flow '
+    msg_frame_info = f"cadence frame: {indexes.tween.i}; tween: {tween:0.2f};"
     print(f"Creating in-between {msg_flow_name}{msg_frame_info}")
 
 

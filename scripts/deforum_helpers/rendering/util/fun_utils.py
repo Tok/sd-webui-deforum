@@ -12,6 +12,6 @@ def flat_map(func, iterable):
         return mapped_iterable
 
 
-def pipe(*funcs):
-    """Pipes a value through a sequence of functions"""
+def tube(*funcs):
+    """Tubes a value through a sequence of functions"""
     return lambda value: reduce(lambda x, f: f(x), funcs, value)

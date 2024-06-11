@@ -17,7 +17,7 @@ def handle_med_or_low_vram_before_step(init):
         sd_hijack.model_hijack.undo_hijack(sd_model)
         devices.torch_gc()
         if init.animation_mode.is_predicting_depths:
-            init.animation_mode.depth_model.to(init.root.device)
+            init.animation_mode.depth_model.to(init.args.root.device)
 
 
 def handle_vram_if_depth_is_predicted(init):
@@ -34,7 +34,7 @@ def handle_vram_before_depth_map_generation(init):
         lowvram.send_everything_to_cpu()
         sd_hijack.model_hijack.undo_hijack(sd_model)
         devices.torch_gc()
-        init.depth_model.to(init.root.device)
+        init.depth_model.to(init.args.root.device)
 
 
 def handle_vram_after_depth_map_generation(init):
