@@ -83,24 +83,10 @@ def run_render_animation(init):
 
         memory_utils.handle_vram_if_depth_is_predicted(init)
 
-        # optical flow
+        # optical flow redo before generation
         optical_flow_redo_generation = init.optical_flow_redo_generation_if_not_in_preview_mode()
         if step.is_optical_flow_redo_before_generation(optical_flow_redo_generation, images):
-            # TODO create and move to optical_flow_redo_before_generation?
-            stored_seed = init.args.args.seed
-            init.args.args.seed = generate_random_seed()
-            print_optical_flow_info(init, optical_flow_redo_generation)
-
-            # TODO create and move to optical_flow_redo_tube
-            img = call_generate(init, indexes.frame.i, step.schedule)
-            img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-            optical_flow = call_get_flow_from_images(init, images.previous, img, optical_flow_redo_generation)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = image_transform_optical_flow(img, optical_flow, step.init.redo_flow_factor)
-
-            init.args.args.seed = stored_seed  # TODO check if (or make) unnecessary and group seeds
-            init.args.root.init_sample = Image.fromarray(img)
-            gc.collect()
+            optical_flow_redo_before_generation(init, indexes, step, images)
 
         # diffusion redo
         is_diffusion_redo = init.has_positive_diffusion_redo and images.has_previous() and step.init.has_strength()
@@ -207,23 +193,31 @@ def run_tubes(frame_tube, contrast_tube, noise_tube, original_image):
 
 # Image transformation tubes
 def frame_transformation_tube(init, indexes, step, images):
-    # make sure `im` stays the last argument in each call.
-    return tube(lambda im: step.apply_frame_warp_transform(init, indexes, im),
-                lambda im: step.do_hybrid_compositing_before_motion(init, indexes, im),
-                lambda im: Step.apply_hybrid_motion_ransac_transform(init, indexes, images, im),
-                lambda im: Step.apply_hybrid_motion_optical_flow(init, indexes, images, im),
-                lambda im: step.do_normal_hybrid_compositing_after_motion(init, indexes, im),
-                lambda im: Step.apply_color_matching(init, images, im),
-                lambda im: Step.transform_to_grayscale_if_active(init, images, im))
+    # make sure `img` stays the last argument in each call.
+    return tube(lambda img: step.apply_frame_warp_transform(init, indexes, img),
+                lambda img: step.do_hybrid_compositing_before_motion(init, indexes, img),
+                lambda img: Step.apply_hybrid_motion_ransac_transform(init, indexes, images, img),
+                lambda img: Step.apply_hybrid_motion_optical_flow(init, indexes, images, img),
+                lambda img: step.do_normal_hybrid_compositing_after_motion(init, indexes, img),
+                lambda img: Step.apply_color_matching(init, images, img),
+                lambda img: Step.transform_to_grayscale_if_active(init, images, img))
 
 
 def contrast_transformation_tube(init, step, mask):
-    return tube(lambda im: step.apply_scaling(im),
-                lambda im: step.apply_anti_blur(init, mask, im))
+    return tube(lambda img: step.apply_scaling(img),
+                lambda img: step.apply_anti_blur(init, mask, img))
 
 
 def noise_transformation_tube(init, step):
-    return tube(lambda im: step.apply_frame_noising(init, step, im))
+    return tube(lambda img: step.apply_frame_noising(init, step, img))
+
+
+def optical_flow_redo_tube(init, optical_flow, images):
+    return tube(lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
+                lambda img: cv2.cvtColor(img, cv2.COLOR_BGR2RGB),
+                lambda img: image_transform_optical_flow(  # TODO extract get_flow
+                    img, call_get_flow_from_images(init, images.previous, img, optical_flow),
+                    step.init.redo_flow_factor))
 
 
 def generate_depth_maps_if_active(init):
@@ -246,3 +240,17 @@ def progress_step(init, idx, turbo, opencv_image, image, depth):
         save_image(image, 'PIL', filename, init.args.args, init.args.video_args, init.args.root)
         depth = generate_depth_maps_if_active(init)
         return idx.frame.i + 1, depth  # normal (i.e. 'non-turbo') step always increments by 1.
+
+
+def optical_flow_redo_before_generation(init, indexes, step, images):
+    stored_seed = init.args.args.seed  # keep original to reset it after executing the optical flow
+    init.args.args.seed = generate_random_seed()  # set a new random seed
+    print_optical_flow_info(init, optical_flow_redo_generation)  # TODO output temp seed?
+
+    sample_image = call_generate(init, indexes.frame.i, step.schedule)
+    optical_tube = optical_flow_redo_tube(init, optical_flow_redo_generation, images)
+    transformed_sample_image = optical_tube(sample_image)
+
+    init.args.args.seed = stored_seed  # restore stored seed
+    init.args.root.init_sample = Image.fromarray(transformed_sample_image)
+    gc.collect()
