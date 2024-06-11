@@ -26,7 +26,7 @@ def update_job(init, indexes):
 
 def update_status_tracker(init, indexes):
     progress = indexes.frame.i / init.args.anim_args.max_frames
-    JobStatusTracker().update_phase(init.root.job_id, phase="GENERATING", progress=progress)
+    JobStatusTracker().update_phase(init.args.root.job_id, phase="GENERATING", progress=progress)
 
 
 def update_progress_during_cadence(init, indexes):

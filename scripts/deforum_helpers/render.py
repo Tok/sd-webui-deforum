@@ -31,7 +31,7 @@ from .rendering.util import generate_random_seed, memory_utils, filename_utils, 
 from .rendering.util.call.gen import call_generate
 from .rendering.util.call.hybrid import call_get_flow_from_images, call_hybrid_composite
 from .rendering.util.call.video_and_audio import call_render_preview
-from .rendering.util.fun_utils import pipe
+from .rendering.util.fun_utils import tube
 from .rendering.util.image_utils import add_overlay_mask_if_active, force_to_grayscale_if_required
 from .rendering.util.log_utils import print_animation_frame_info, print_optical_flow_info, print_redo_generation_info
 from .rendering.util.utils import context
@@ -68,9 +68,9 @@ def run_render_animation(init):
         images.color_match = Step.create_color_match_for_video(init, indexes)
 
         if images.previous is not None:  # skipping 1st iteration
-            images.previous = frame_image_transformation_pipe(init, indexes, step, images)(images.previous)
-            contrast_image = contrast_image_transformation_pipe(init, step, mask)(images.previous)
-            noised_image = noise_image_transformation_pipe(init, step)(contrast_image)
+            images.previous = frame_image_transformation_tube(init, indexes, step, images)(images.previous)
+            contrast_image = contrast_image_transformation_tube(init, step, mask)(images.previous)
+            noised_image = noise_image_transformation_tube(init, step)(contrast_image)
             init.update_sample_and_args_for_current_progression_step(step, noised_image)
 
         init.update_some_args_for_current_step(indexes, step)
@@ -97,7 +97,7 @@ def run_render_animation(init):
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 img = image_transform_optical_flow(img, disposable_flow, step.init.redo_flow_factor)
                 init.args.args.seed = stored_seed  # TODO check if (or make) unnecessary and group seeds
-                init.root.init_sample = Image.fromarray(img)
+                init.args.root.init_sample = Image.fromarray(img)
                 disposable_image = img  # TODO refactor
                 del (img, disposable_flow, stored_seed)
                 gc.collect()
@@ -117,14 +117,14 @@ def run_render_animation(init):
                     disposable_image = maintain_colors(images.previous, images.color_match,
                                                        init.args.anim_args.color_coherence)
                 init.args.args.seed = stored_seed
-                init.root.init_sample = Image.fromarray(cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB))
+                init.args.root.init_sample = Image.fromarray(cv2.cvtColor(disposable_image, cv2.COLOR_BGR2RGB))
             del (disposable_image, stored_seed)
             gc.collect()  # TODO try to eventually kick the gc only once at the end of every generation, iteration.
 
         # generation
         image = call_generate(init, indexes.frame.i, step.schedule)
 
-        if image is None:
+        if image is None:  # TODO throw error or log warning or something
             break
 
         # do hybrid video after generation
@@ -158,7 +158,7 @@ def run_render_animation(init):
 
         state.assign_current_image(image)
         # may reassign init.args.args and/or root.seed_internal
-        init.args.args.seed = next_seed(init.args.args, init.root)  # TODO group all seeds and sub-seeds
+        init.args.args.seed = next_seed(init.args.args, init.args.root)  # TODO group all seeds and sub-seeds
         last_preview_frame = call_render_preview(init, indexes.frame.i, last_preview_frame)
         web_ui_utils.update_status_tracker(init, indexes)
         init.animation_mode.unload_raft_and_depth_model()
@@ -191,9 +191,9 @@ def emit_frames_between_index_pair(init, indexes, step, turbo, images, tween_fra
         images.previous = new_image  # TODO shouldn't
 
 
-def frame_image_transformation_pipe(init, indexes, step, images):
+def frame_image_transformation_tube(init, indexes, step, images):
     # make sure `im` stays the last argument in each call.
-    return pipe(lambda im: step.apply_frame_warp_transform(init, indexes, im),
+    return tube(lambda im: step.apply_frame_warp_transform(init, indexes, im),
                 lambda im: step.do_hybrid_compositing_before_motion(init, indexes, im),
                 lambda im: Step.apply_hybrid_motion_ransac_transform(init, indexes, images, im),
                 lambda im: Step.apply_hybrid_motion_optical_flow(init, indexes, images, im),
@@ -202,20 +202,20 @@ def frame_image_transformation_pipe(init, indexes, step, images):
                 lambda im: Step.transform_to_grayscale_if_active(init, images, im))
 
 
-def contrast_image_transformation_pipe(init, step, mask):
-    return pipe(lambda im: step.apply_scaling(im),
+def contrast_image_transformation_tube(init, step, mask):
+    return tube(lambda im: step.apply_scaling(im),
                 lambda im: step.apply_anti_blur(init, mask, im))
 
 
-def noise_image_transformation_pipe(init, step):
-    return pipe(lambda im: step.apply_frame_noising(init, step, im))
+def noise_image_transformation_tube(init, step):
+    return tube(lambda im: step.apply_frame_noising(init, step, im))
 
 
 def generate_depth_maps_if_active(init):
     # TODO move all depth related stuff to new class.
     if init.args.anim_args.save_depth_maps:
         memory_utils.handle_vram_before_depth_map_generation(init)
-        depth = init.depth_model.predict(opencv_image, init.args.anim_args.midas_weight, init.root.half_precision)
+        depth = init.depth_model.predict(opencv_image, init.args.anim_args.midas_weight, init.args.root.half_precision)
         depth_filename = filename_utils.depth_frame(init, idx)
         init.depth_model.save(os.path.join(init.output_directory, depth_filename), depth)
         memory_utils.handle_vram_after_depth_map_generation(init)
@@ -228,6 +228,6 @@ def progress_step(init, idx, turbo, opencv_image, image, depth):
         return idx.frame.i + turbo.progress_step(idx, opencv_image), depth
     else:
         filename = filename_utils.frame(init, idx)
-        save_image(image, 'PIL', filename, init.args.args, init.args.video_args, init.root)
+        save_image(image, 'PIL', filename, init.args.args, init.args.video_args, init.args.root)
         depth = generate_depth_maps_if_active(init)
         return idx.frame.i + 1, depth  # normal (i.e. 'non-turbo') step always increments by 1.

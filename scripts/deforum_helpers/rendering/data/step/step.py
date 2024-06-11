@@ -40,6 +40,9 @@ class StepInit:
     def flow_factor(self):
         return self.hybrid_comp_schedules['flow_factor']
 
+    def has_strength(self):
+        return self.strength > 0
+
     @staticmethod
     def create(deform_keys, i):
         with context(deform_keys) as keys:
@@ -86,7 +89,7 @@ class Step:
         if has_depth and has_next:
             image = turbo.next.image
             weight = init.args.anim_args.midas_weight
-            precision = init.root.half_precision
+            precision = init.args.root.half_precision
             self.depth = init.depth_model.predict(image, weight, precision)
 
     def write_frame_subtitle(self, init, indexes, turbo):
@@ -136,7 +139,7 @@ class Step:
         if is_use_any_mask:
             seq = self.schedule.noise_mask_seq
             vals = mask.noise_vals
-            init.root.noise_mask = call_compose_mask_with_check(init, seq, vals, contrast_image)
+            init.args.root.noise_mask = call_compose_mask_with_check(init, seq, vals, contrast_image)
         return call_add_noise(init, self, image)
 
     @staticmethod

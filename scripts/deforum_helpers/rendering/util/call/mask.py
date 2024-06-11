@@ -3,7 +3,7 @@ from ....image_sharpening import unsharp_mask
 
 
 def call_compose_mask_with_check(init, mask_seq, val_masks, image):
-    return compose_mask_with_check(init.root, init.args.args, mask_seq, val_masks,
+    return compose_mask_with_check(init.args.root, init.args.args, mask_seq, val_masks,
                                    Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)))
 
 

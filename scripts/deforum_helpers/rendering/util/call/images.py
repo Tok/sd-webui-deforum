@@ -8,7 +8,7 @@ def call_add_noise(init, step, image):
     seed: int = init.args.args.seed
     n_type: str = aa.noise_type
     perlin_arguments = (aa.perlin_w, aa.perlin_h, aa.perlin_octaves, aa.perlin_persistence)
-    mask = init.root.noise_mask
+    mask = init.args.root.noise_mask
     is_do_maks_invert = init.args.args.invert_mask
     return add_noise(image, amount, seed, n_type, perlin_arguments, mask, is_do_maks_invert)
 

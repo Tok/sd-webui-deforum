@@ -28,7 +28,7 @@ class Mask:
         if init.args.anim_args.use_mask_video:
             mask = call_get_mask_from_file(init, i, True)
             init.args.args.mask_file = mask
-            init.root.noise_mask = mask
+            init.args.root.noise_mask = mask
             put_all(dicts, key, mask)
         elif is_mask_image is None and init.is_use_mask:
             put_all(dicts, key, get_mask(init.args.args))  # TODO?: add a different default noisc mask
@@ -46,7 +46,7 @@ class Mask:
         if init.args.anim_args.use_mask_video:
             mask = call_get_mask_from_file(init, i, True)
             init.args.args.mask_file = mask
-            init.root.noise_mask = mask
+            init.args.root.noise_mask = mask
             put_all(dicts, key, mask)
         elif is_mask_image is None and init.is_use_mask:
             put_all(dicts, key, get_mask(init.args.args))  # TODO?: add a different default noise mask
