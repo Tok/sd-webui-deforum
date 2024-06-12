@@ -94,6 +94,7 @@ def run_render_animation(init):
         if is_diffusion_redo and is_not_preview:
             stored_seed = init.args.args.seed
             last_diffusion_redo_index = int(init.args.anim_args.diffusion_redo)
+            # TODO extract
             for n in range(0, last_diffusion_redo_index):
                 print_redo_generation_info(init, n)
                 init.args.args.seed = generate_random_seed()
@@ -131,9 +132,7 @@ def run_render_animation(init):
         image = add_overlay_mask_if_active(init, image)
 
         # on strength 0, set color match to generation
-        if (((not init.args.anim_args.legacy_colormatch and not init.args.args.use_init)
-             or (init.args.anim_args.legacy_colormatch and step.init.strength == 0))
-                and init.args.anim_args.color_coherence not in ['Image', 'Video Input']):
+        if init.is_do_color_match_conversion(step):
             images.color_match = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
 
         opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)

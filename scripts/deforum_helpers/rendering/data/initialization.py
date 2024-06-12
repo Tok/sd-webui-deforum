@@ -31,12 +31,8 @@ class RenderInitArgs:
     video_args: Any = None
     controlnet_args: Any = None
     loop_args: LoopArgs = None
-    opts: Any = None
+    opts: Any = None  # opts were passed from modules.shared.  # TODO import and access directly?
     root: RootArgs = None
-
-    @staticmethod
-    def create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root):
-        return RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
 
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
