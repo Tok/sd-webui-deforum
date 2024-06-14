@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional, Any
 
-from ..util import context
-
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
 class Schedule:
@@ -21,18 +19,18 @@ class Schedule:
         # TODO typecheck keys as DeformAnimKeys or provide key collection or something
         """Create a new Schedule instance based on the provided parameters."""
         is_use_mask_without_noise = init.is_use_mask and not init.args.anim_args.use_noise_mask
-        with context(init.animation_keys.deform_keys) as keys:
-            steps = Schedule.schedule_steps(keys, i, anim_args)
-            sampler_name = Schedule.schedule_sampler(keys, i, anim_args)
-            clipskip = Schedule.schedule_clipskip(keys, i, anim_args)
-            noise_multiplier = Schedule.schedule_noise_multiplier(keys, i, anim_args)
-            eta_ddim = Schedule.schedule_ddim_eta(keys, i, anim_args)
-            eta_ancestral = Schedule.schedule_ancestral_eta(keys, i, anim_args)
-            mask = Schedule.schedule_mask(keys, i, args)
-            noise_mask = Schedule.schedule_noise_mask(keys, i, anim_args)
-            noise_mask_seq = schedule.mask_seq if is_use_mask_without_noise else None
-            return Schedule(steps, sampler_name, clipskip, noise_multiplier, eta_ddim, eta_ancestral, mask,
-                            noise_mask, noise_mask_seq)
+        keys = init.animation_keys.deform_keys
+        steps = Schedule.schedule_steps(keys, i, anim_args)
+        sampler_name = Schedule.schedule_sampler(keys, i, anim_args)
+        clipskip = Schedule.schedule_clipskip(keys, i, anim_args)
+        noise_multiplier = Schedule.schedule_noise_multiplier(keys, i, anim_args)
+        eta_ddim = Schedule.schedule_ddim_eta(keys, i, anim_args)
+        eta_ancestral = Schedule.schedule_ancestral_eta(keys, i, anim_args)
+        mask = Schedule.schedule_mask(keys, i, args)
+        noise_mask = Schedule.schedule_noise_mask(keys, i, anim_args)
+        noise_mask_seq = schedule.mask_seq if is_use_mask_without_noise else None
+        return Schedule(steps, sampler_name, clipskip, noise_multiplier, eta_ddim, eta_ancestral, mask,
+                        noise_mask, noise_mask_seq)
 
     @staticmethod
     def _has_schedule(keys, i):

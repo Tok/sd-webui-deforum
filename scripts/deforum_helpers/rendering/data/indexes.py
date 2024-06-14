@@ -27,3 +27,9 @@ class Indexes:
 
     def update_frame(self, i: int):
         self.frame = IndexWithStart(self.frame.start, i)
+
+    def is_not_first_frame(self):
+        return self.frame.i > 0
+
+    def is_first_frame(self):
+        return self.frame.i == 0

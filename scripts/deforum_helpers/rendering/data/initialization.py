@@ -10,10 +10,9 @@ from PIL import Image
 
 from .anim import AnimationKeys, AnimationMode
 from .subtitle import Srt
-from ..util import memory_utils
+from ..util import memory_utils, opt_utils
 from ..util.call.mask import call_compose_mask_with_check
 from ..util.call.video_and_audio import call_get_next_frame
-from ..util.utils import context
 from ...args import DeforumArgs, DeforumAnimArgs, LoopArgs, ParseqArgs, RootArgs
 from ...deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
 from ...depth import DepthModel
@@ -31,12 +30,8 @@ class RenderInitArgs:
     video_args: Any = None
     controlnet_args: Any = None
     loop_args: LoopArgs = None
-    opts: Any = None
+    opts: Any = None  # opts were passed from modules.shared.  # TODO import and access directly?
     root: RootArgs = None
-
-    @staticmethod
-    def create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root):
-        return RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
 
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
@@ -54,27 +49,25 @@ class RenderInit:
     is_use_mask: bool
 
     @staticmethod
-    def create(args, parseq_args, anim_args, video_args, controlnet_args,
-               loop_args, opts, root) -> 'RenderInit':
+    def create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root) -> 'RenderInit':
         ri_args = RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
         output_directory = args.outdir
         is_use_mask = args.use_mask
-        with context(RenderInit) as RI:
-            parseq_adapter = RI.create_parseq_adapter(ri_args)
-            srt = Srt.create_if_active(opts.data, output_directory, root.timestring, video_args.fps)
-            animation_keys = AnimationKeys.from_args(ri_args, parseq_adapter, args.seed)
-            animation_mode = AnimationMode.from_args(ri_args)
-            prompt_series = RI.select_prompts(parseq_adapter, anim_args, animation_keys, root)
-            depth_model = RI.create_depth_model_and_enable_depth_map_saving_if_active(
-                animation_mode, root, anim_args, args)
-            instance = RenderInit(args.seed, ri_args, parseq_adapter, srt, animation_keys,
-                                  animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
-            RI.init_looper_if_active(args, loop_args)
-            RI.handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
-            RI.create_output_directory_for_the_batch(args.outdir)
-            RI.save_settings_txt(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
-            RI.maybe_resume_from_timestring(anim_args, root)
-            return instance
+        parseq_adapter = RenderInit.create_parseq_adapter(ri_args)
+        srt = Srt.create_if_active(opts.data, output_directory, root.timestring, video_args.fps)
+        animation_keys = AnimationKeys.from_args(ri_args, parseq_adapter, args.seed)
+        animation_mode = AnimationMode.from_args(ri_args)
+        prompt_series = RenderInit.select_prompts(parseq_adapter, anim_args, animation_keys, root)
+        depth_model = RenderInit.create_depth_model_and_enable_depth_map_saving_if_active(
+            animation_mode, root, anim_args, args)
+        instance = RenderInit(args.seed, ri_args, parseq_adapter, srt, animation_keys,
+                              animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
+        RenderInit.init_looper_if_active(args, loop_args)
+        RenderInit.handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
+        RenderInit.create_output_directory_for_the_batch(args.outdir)
+        RenderInit.save_settings_txt(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
+        RenderInit.maybe_resume_from_timestring(anim_args, root)
+        return instance
 
     def is_3d(self):
         return self.args.anim_args.animation_mode == '3D'
@@ -266,6 +259,17 @@ class RenderInit:
                 self.args.args.mask_image = call_compose_mask_with_check(self, mask_seq, mask.vals, sample)
             else:
                 self.args.args.mask_image = None  # we need it only after the first frame anyway
+
+    def prepare_generation(self, indexes, step, mask):
+        # TODO move all of this to Step?
+        self.update_some_args_for_current_step(indexes, step)
+        self.update_seed_and_checkpoint_for_current_step(indexes)
+        self.update_sub_seed_schedule_for_current_step(indexes)
+        self.prompt_for_current_step(indexes)
+        self.update_video_data_for_current_frame(indexes, step)
+        self.update_mask_image(step, mask)
+        self.animation_keys.update(indexes.frame.i)
+        opt_utils.setup(self, step.schedule)
 
     @staticmethod
     def create_output_directory_for_the_batch(directory):

@@ -1,3 +1,2 @@
-# All modules in this package are intended to not hold or change any state.
-# Only use static class methods or loose defs that don't change anything in the arguments passed.
-from .utils import call_or_use_on_cond, combo_context, context, generate_random_seed, put_all, put_if_present
+# All modules in this package are intended to not hold any state.
+from .utils import call_or_use_on_cond, generate_random_seed, put_all, put_if_present

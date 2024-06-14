@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 from ...util.memory_utils import keep_3d_models_in_vram
-from ...util.utils import combo_context
 from ....RAFT import RAFT
 from ....hybrid_video import hybrid_generation
 
@@ -86,11 +85,11 @@ class AnimationMode:
 
     @staticmethod
     def from_args(step_args):
-        with combo_context(step_args, AnimationMode) as (sa, AM):
-            # path required by hybrid functions, even if hybrid_comp_save_extra_frames is False
-            hybrid_input_files: Any = os.path.join(sa.args.outdir, 'hybridframes')
-            return AnimationMode(
-                AM.has_video_input(sa.anim_args), AM.initial_hybrid_files(sa),
-                hybrid_input_files, None, keep_3d_models_in_vram(sa),
-                AM.load_depth_model_if_active(sa.args, sa.anim_args, sa.opts),
-                AM.load_raft_if_active(sa.anim_args, sa.args))
+        sa = step_args
+        # path required by hybrid functions, even if hybrid_comp_save_extra_frames is False
+        hybrid_input_files: Any = os.path.join(sa.args.outdir, 'hybridframes')
+        return AnimationMode(
+            AnimationMode.has_video_input(sa.anim_args), AnimationMode.initial_hybrid_files(sa),
+            hybrid_input_files, None, keep_3d_models_in_vram(sa),
+            AnimationMode.load_depth_model_if_active(sa.args, sa.anim_args, sa.opts),
+            AnimationMode.load_raft_if_active(sa.anim_args, sa.args))

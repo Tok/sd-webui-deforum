@@ -4,7 +4,7 @@ from typing import Any
 from PIL import Image
 
 from ..util import put_all
-from ..util.utils import create_img, call_or_use_on_cond, context
+from ..util.utils import create_img, call_or_use_on_cond
 from ...load_images import get_mask, load_img
 from ...rendering.util.call.images import call_get_mask_from_file
 
@@ -52,11 +52,14 @@ class Mask:
             put_all(dicts, key, get_mask(init.args.args))  # TODO?: add a different default noise mask
 
     @staticmethod
+    def _load_mask(init, args):
+        return load_img(args.init_image, args.init_image_box, shape=init.dimensions(),
+                        use_alpha_as_mask=args.use_alpha_as_mask)[1]
+
+    @staticmethod
     def _create_mask_image(init):
-        with context(init.args.args) as args:
-            return call_or_use_on_cond(init.is_using_init_image_or_box(),
-                                       lambda: load_img(args.init_image, args.init_image_box, shape=init.dimensions(),
-                                                        use_alpha_as_mask=args.use_alpha_as_mask)[1])
+        args = init.args.args
+        return call_or_use_on_cond(init.is_using_init_image_or_box(), lambda: _load_mask(init, args))
 
     @staticmethod
     def _create(init, i, mask_image):
