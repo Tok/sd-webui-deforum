@@ -16,7 +16,6 @@ from ...util.call.hybrid import (
 from ...util.call.images import call_add_noise
 from ...util.call.mask import call_compose_mask_with_check, call_unsharp_mask
 from ...util.call.subtitle import call_format_animation_params, call_write_frame_subtitle
-from ...util.utils import context
 from ....hybrid_video import image_transform_ransac, image_transform_optical_flow
 
 
@@ -45,18 +44,18 @@ class StepInit:
 
     @staticmethod
     def create(deform_keys, i):
-        with context(deform_keys) as keys:
-            return StepInit(keys.noise_schedule_series[i],
-                            keys.strength_schedule_series[i],
-                            keys.cfg_scale_schedule_series[i],
-                            keys.contrast_schedule_series[i],
-                            int(keys.kernel_schedule_series[i]),
-                            keys.sigma_schedule_series[i],
-                            keys.amount_schedule_series[i],
-                            keys.threshold_schedule_series[i],
-                            keys.cadence_flow_factor_schedule_series[i],
-                            keys.redo_flow_factor_schedule_series[i],
-                            StepInit._hybrid_comp_args(keys, i))
+        keys = deform_keys
+        return StepInit(keys.noise_schedule_series[i],
+                        keys.strength_schedule_series[i],
+                        keys.cfg_scale_schedule_series[i],
+                        keys.contrast_schedule_series[i],
+                        int(keys.kernel_schedule_series[i]),
+                        keys.sigma_schedule_series[i],
+                        keys.amount_schedule_series[i],
+                        keys.threshold_schedule_series[i],
+                        keys.cadence_flow_factor_schedule_series[i],
+                        keys.redo_flow_factor_schedule_series[i],
+                        StepInit._hybrid_comp_args(keys, i))
 
     @staticmethod
     def _hybrid_comp_args(keys, i):
