@@ -43,13 +43,18 @@ def optical_flow_redo_tube(init, optical_flow, images):
                     step.init.redo_flow_factor))
 
 
-def hybrid_video_after_generation_tube(init, indexes, step):
+def conditional_hybrid_video_after_generation_tube(init, indexes, step):
     return tube(lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
                 lambda img: call_hybrid_composite(init, indexes.frame.i, img, step.init.hybrid_comp_schedules),
-                lambda img: Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)))
+                lambda img: Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)),
+                is_do_process=
+                lambda: indexes.is_not_first_frame() and init.is_hybrid_composite_after_generation())
 
 
-def color_match_tube(init, images):
-    return tube(lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
+def conditional_color_match_tube(init, indexes, images):
+    return tube(lambda img: maintain_colors(img, images.color_match, init.args.anim_args.color_coherence),
+                lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
                 lambda img: maintain_colors(img, images.color_match, init.args.anim_args.color_coherence),
-                lambda img: Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)))
+                lambda img: Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)),
+                is_do_process=
+                lambda: indexes.is_first_frame() and init.is_color_match_to_be_initialized(images.color_match))

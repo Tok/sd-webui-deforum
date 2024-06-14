@@ -28,8 +28,8 @@ from .rendering.data import Turbo, Images, Indexes, Mask
 from .rendering.data.initialization import RenderInit
 from .rendering.data.step import Step, TweenStep
 from .rendering.img_2_img_tubes import (
-    frame_transformation_tube, contrast_transformation_tube, noise_transformation_tube,
-    optical_flow_redo_tube, hybrid_video_after_generation_tube, color_match_tube)
+    frame_transformation_tube, conditional_color_match_tube , conditional_hybrid_video_after_generation_tube,
+    contrast_transformation_tube, noise_transformation_tube, optical_flow_redo_tube)
 from .rendering.util import generate_random_seed, memory_utils, filename_utils, web_ui_utils
 from .rendering.util.call.gen import call_generate
 from .rendering.util.call.video_and_audio import call_render_preview
@@ -97,15 +97,13 @@ def run_render_animation(init):
             break
 
         # do hybrid video after generation
-        if indexes.is_not_first_frame() and init.is_hybrid_composite_after_generation():
-            image = hybrid_video_after_generation_tube(init, indexes, step)(image)
+        image = conditional_hybrid_video_after_generation_tube(init, indexes, step)(image)
 
         # color matching on first frame is after generation, color match was collected earlier,
         # so we do an extra generation to avoid the corruption introduced by the color match of first output
-        if indexes.is_first_frame() and init.is_color_match_to_be_initialized(images.color_match):
-            image = color_match_tube(init, images)(image)
+        image = conditional_color_match_tube(init, indexes, images)(image)
 
-        image = force_to_grayscale_if_required(init, image)
+        image = force_to_grayscale_if_required(init, image)  # TODO move to tubes?
         image = add_overlay_mask_if_active(init, image)
 
         # on strength 0, set color match to generation

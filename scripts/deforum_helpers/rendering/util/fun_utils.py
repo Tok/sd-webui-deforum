@@ -12,6 +12,6 @@ def flat_map(func, iterable):
         return mapped_iterable
 
 
-def tube(*funcs):
-    """Tubes a value through a sequence of functions"""
-    return lambda value: reduce(lambda x, f: f(x), funcs, value)
+def tube(*funcs, is_do_process=lambda: True):
+    """Tubes a value through a sequence of functions with a predicate `is_do_process` for skipping."""
+    return lambda value: reduce(lambda x, f: f(x) if is_do_process() else x, funcs, value)
