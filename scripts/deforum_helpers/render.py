@@ -14,7 +14,6 @@
 
 # Contact the authors: https://deforum.github.io/
 
-import gc
 import os
 
 import cv2
@@ -41,7 +40,6 @@ from .seed import next_seed
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
     init = RenderInit.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
-    # gc.set_debug(True)  # TODO remove
     run_render_animation(init)
 
 
@@ -159,6 +157,32 @@ def progress_step(init, idx, turbo, opencv_image, image, depth):
         return idx.frame.i + 1, depth  # normal (i.e. 'non-turbo') step always increments by 1.
 
 
+def transform_and_update_noised_sample(init, indexes, step, images, mask):
+    if images.has_previous():  # skipping 1st iteration
+        transformed_image = frame_transformation_tube(init, indexes, step, images)(images.previous)
+        # TODO separate
+        noised_image = contrasted_noise_transformation_tube(init, step, mask)(transformed_image)
+        init.update_sample_and_args_for_current_progression_step(step, noised_image)
+        return transformed_image
+    else:
+        return None
+
+
+# Conditional Redoes
+def maybe_redo_optical_flow(init, indexes, step, images):
+    optical_flow_redo_generation = init.optical_flow_redo_generation_if_not_in_preview_mode()
+    is_redo_optical_flow = step.is_optical_flow_redo_before_generation(optical_flow_redo_generation, images)
+    if is_redo_optical_flow:
+        init.args.root.init_sample = do_optical_flow_redo_before_generation(init, indexes, step, images)
+
+
+def maybe_redo_diffusion(init, indexes, step, images):
+    is_diffusion_redo = init.has_positive_diffusion_redo and images.has_previous() and step.init.has_strength()
+    is_not_preview = init.is_not_in_motion_preview_mode()
+    if is_diffusion_redo and is_not_preview:
+        do_diffusion_redo(init, indexes, step, images)
+
+
 def do_optical_flow_redo_before_generation(init, indexes, step, images):
     stored_seed = init.args.args.seed  # keep original to reset it after executing the optical flow
     init.args.args.seed = generate_random_seed()  # set a new random seed
@@ -187,36 +211,3 @@ def do_diffusion_redo(init, indexes, step, images):
             diffusion_redo_image = maintain_colors(images.previous, images.color_match, mode)
         init.args.args.seed = stored_seed
         init.args.root.init_sample = Image.fromarray(cv2.cvtColor(diffusion_redo_image, cv2.COLOR_BGR2RGB))
-
-
-def transform_and_update_noised_sample(init, indexes, step, images, mask):
-    if images.has_previous():  # skipping 1st iteration
-        transformed_image = frame_transformation_tube(init, indexes, step, images)(images.previous)
-        # TODO separate
-        noised_image = contrasted_noise_transformation_tube(init, step, mask)(transformed_image)
-        init.update_sample_and_args_for_current_progression_step(step, noised_image)
-        return transformed_image
-    else:
-        return None
-
-
-# Conditional Redoes
-IS_KICK_GC_AFTER_REDO = True
-
-
-def maybe_redo_optical_flow(init, indexes, step, images, is_collect_garbage: bool = IS_KICK_GC_AFTER_REDO):
-    optical_flow_redo_generation = init.optical_flow_redo_generation_if_not_in_preview_mode()
-    is_redo_optical_flow = step.is_optical_flow_redo_before_generation(optical_flow_redo_generation, images)
-    if is_redo_optical_flow:
-        init.args.root.init_sample = do_optical_flow_redo_before_generation(init, indexes, step, images)
-        if is_collect_garbage:
-            gc.collect()
-
-
-def maybe_redo_diffusion(init, indexes, step, images, is_collect_garbage: bool = IS_KICK_GC_AFTER_REDO):
-    is_diffusion_redo = init.has_positive_diffusion_redo and images.has_previous() and step.init.has_strength()
-    is_not_preview = init.is_not_in_motion_preview_mode()
-    if is_diffusion_redo and is_not_preview:
-        do_diffusion_redo(init, indexes, step, images)
-        if is_collect_garbage:
-            gc.collect()
