@@ -1,3 +1,6 @@
+import cv2
+import numpy as np
+
 from .data.step.step import Step
 from .util.call.hybrid import call_get_flow_from_images, call_hybrid_composite
 from .util.fun_utils import tube
@@ -51,10 +54,24 @@ def conditional_hybrid_video_after_generation_tube(init, indexes, step):
                 lambda: indexes.is_not_first_frame() and init.is_hybrid_composite_after_generation())
 
 
-def conditional_color_match_tube(init, indexes, images):
+def conditional_extra_color_match_tube(init, indexes, images):
     return tube(lambda img: maintain_colors(img, images.color_match, init.args.anim_args.color_coherence),
                 lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
                 lambda img: maintain_colors(img, images.color_match, init.args.anim_args.color_coherence),
                 lambda img: Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)),
                 is_do_process=
                 lambda: indexes.is_first_frame() and init.is_color_match_to_be_initialized(images.color_match))
+
+
+def conditional_color_match_tube(init, step):
+    return tube(lambda img: cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR),
+                is_do_process=
+                lambda: init.is_do_color_match_conversion(step))
+
+
+# Composite Tubes
+def contrasted_noise_transformation_tube(init, step, mask):
+    """Combines contrast and noise transformation tubes."""
+    contrast_tube = contrast_transformation_tube(init, step, mask)
+    noise_tube = noise_transformation_tube(init, step)
+    return tube(lambda img: noise_tube(contrast_tube(img)))
