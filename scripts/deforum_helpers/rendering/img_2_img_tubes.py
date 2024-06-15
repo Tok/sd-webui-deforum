@@ -58,8 +58,9 @@ def optical_flow_redo_tube(data: RenderData, optical_flow) -> ImageTube:
 # Conditional Tubes (can be switched on or off by providing a Callable[Boolean] `is_do_process` predicate).
 def conditional_hybrid_video_after_generation_tube(step: Step) -> ImageTube:
     data = step.render_data
+    step_data = step.step_data
     return tube(lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
-                lambda img: call_hybrid_composite(data, data.indexes.frame.i, img, step.step_data.hybrid_comp_schedules),
+                lambda img: call_hybrid_composite(data, data.indexes.frame.i, img, step_data.hybrid_comp_schedules),
                 lambda img: Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)),
                 is_do_process=
                 lambda: data.indexes.is_not_first_frame() and data.is_hybrid_composite_after_generation())
