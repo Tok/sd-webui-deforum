@@ -1,7 +1,10 @@
+CYAN = "\033[36m"
+YELLOW = "\033[33m"
+RESET = "\033[0m"
 
 
 def print_animation_frame_info(init, indexes):
-    print(f"\033[36mAnimation frame: \033[0m{indexes.frame.i}/{init.args.anim_args.max_frames}")
+    print(f"{CYAN}Animation frame: {RESET}{indexes.frame.i}/{init.args.anim_args.max_frames}")
 
 
 def print_tween_frame_info(init, indexes, cadence_flow, tween):
@@ -22,3 +25,7 @@ def print_optical_flow_info(init, optical_flow_redo_generation):
 
 def print_redo_generation_info(init, n):
     print(f"Redo generation {n + 1} of {int(init.args.anim_args.diffusion_redo)} before final generation")
+
+
+def print_warning_generate_returned_no_image():
+    print(f"{YELLOW}Warning: {RESET}Generate returned no image. Skipping to next iteration.")

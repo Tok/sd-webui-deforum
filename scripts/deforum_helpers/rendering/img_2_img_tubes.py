@@ -4,6 +4,7 @@ import numpy as np
 from .data.step.step import Step
 from .util.call.hybrid import call_get_flow_from_images, call_hybrid_composite
 from .util.fun_utils import tube
+from ..masks import do_overlay_mask
 
 """
 This module provides functions for processing images through various transformations.
@@ -46,6 +47,7 @@ def optical_flow_redo_tube(init, optical_flow, images):
                     step.init.redo_flow_factor))
 
 
+# Conditional Tubes
 def conditional_hybrid_video_after_generation_tube(init, indexes, step):
     return tube(lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
                 lambda img: call_hybrid_composite(init, indexes.frame.i, img, step.init.hybrid_comp_schedules),
@@ -55,6 +57,8 @@ def conditional_hybrid_video_after_generation_tube(init, indexes, step):
 
 
 def conditional_extra_color_match_tube(init, indexes, images):
+    # color matching on first frame is after generation, color match was collected earlier,
+    # so we do an extra generation to avoid the corruption introduced by the color match of first output
     return tube(lambda img: maintain_colors(img, images.color_match, init.args.anim_args.color_coherence),
                 lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
                 lambda img: maintain_colors(img, images.color_match, init.args.anim_args.color_coherence),
@@ -64,9 +68,31 @@ def conditional_extra_color_match_tube(init, indexes, images):
 
 
 def conditional_color_match_tube(init, step):
+    # on strength 0, set color match to generation
     return tube(lambda img: cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR),
-                is_do_process=
-                lambda: init.is_do_color_match_conversion(step))
+                is_do_process=lambda: init.is_do_color_match_conversion(step))
+
+
+def conditional_force_to_grayscale_tube(init):
+    return tube(lambda img: ImageOps.grayscale(img),
+                lambda img: ImageOps.colorize(img, black="black", white="white"),
+                is_do_process=lambda: init.args.anim_args.color_force_grayscale)
+
+
+def conditional_add_overlay_mask_tube(init, indexes, is_tween):
+    is_use_overlay = init.args.args.overlay_mask
+    is_use_mask = init.args.anim_args.use_mask_video or init.args.args.use_mask
+    index = indexes.tween.i if is_tween else indexes.frame.i
+    is_bgr_array = True
+    return tube(lambda img: ImageOps.grayscale(img),
+                lambda img: do_overlay_mask(init.args.args, init.args.anim_args, img, index, is_bgr_array),
+                is_do_process=lambda: is_use_overlay and is_use_mask)
+
+
+def conditional_force_tween_to_grayscale_tube(init):
+    return tube(lambda img: cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2GRAY),
+                lambda img: cv2.cvtColor(img, cv2.COLOR_GRAY2BGR),
+                is_do_process=lambda: init.args.anim_args.color_force_grayscale)
 
 
 # Composite Tubes
@@ -75,3 +101,11 @@ def contrasted_noise_transformation_tube(init, step, mask):
     contrast_tube = contrast_transformation_tube(init, step, mask)
     noise_tube = noise_transformation_tube(init, step)
     return tube(lambda img: noise_tube(contrast_tube(img)))
+
+
+def conditional_frame_transformation_tube(init, indexes, step, images, is_tween: bool = False):
+    hybrid_tube = conditional_hybrid_video_after_generation_tube(init, indexes, step)
+    extra_tube = conditional_extra_color_match_tube(init, indexes, images)
+    gray_tube = conditional_force_to_grayscale_tube(init)
+    mask_tube = conditional_add_overlay_mask_tube(init, indexes, is_tween)
+    return tube(lambda img: mask_tube(gray_tube(extra_tube(hybrid_tube(img)))))

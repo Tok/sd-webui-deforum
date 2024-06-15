@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...util import image_utils, log_utils, web_ui_utils
+from ...img_2_img_tubes import conditional_force_tween_to_grayscale_tube, conditional_add_overlay_mask_tube
 
 
 @dataclass(init=True, frozen=False, repr=False, eq=False)
@@ -28,8 +29,8 @@ class TweenStep:
     def generate_tween_image(self, init, indexes, step, turbo):
         is_tween = True
         warped = turbo.do_optical_flow_cadence_after_animation_warping(init, indexes, step, self)
-        recolored = image_utils.force_tween_to_grayscale_if_required(init, warped)
-        masked = image_utils.add_overlay_mask_if_active(init, recolored, is_tween)
+        recolored = conditional_force_tween_to_grayscale_tube(init)(warped)
+        masked = conditional_add_overlay_mask_tube(init, indexes, is_tween)(recolored)
         return masked
 
     @staticmethod

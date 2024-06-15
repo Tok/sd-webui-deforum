@@ -260,7 +260,7 @@ class RenderInit:
             else:
                 self.args.args.mask_image = None  # we need it only after the first frame anyway
 
-    def prepare_generation(self, indexes, step, mask):
+    def prepare_generation(self, init, indexes, step, mask):
         # TODO move all of this to Step?
         self.update_some_args_for_current_step(indexes, step)
         self.update_seed_and_checkpoint_for_current_step(indexes)
@@ -270,6 +270,7 @@ class RenderInit:
         self.update_mask_image(step, mask)
         self.animation_keys.update(indexes.frame.i)
         opt_utils.setup(self, step.schedule)
+        memory_utils.handle_vram_if_depth_is_predicted(init)
 
     @staticmethod
     def create_output_directory_for_the_batch(directory):

@@ -26,14 +26,14 @@ from .colors import maintain_colors
 from .rendering.data import Turbo, Images, Indexes, Mask
 from .rendering.data.initialization import RenderInit
 from .rendering.data.step import Step, TweenStep
-from .rendering.img_2_img_tubes import (
-    conditional_color_match_tube, conditional_hybrid_video_after_generation_tube, conditional_extra_color_match_tube,
-    contrasted_noise_transformation_tube, optical_flow_redo_tube, frame_transformation_tube)
+from .rendering.img_2_img_tubes import (conditional_color_match_tube, conditional_frame_transformation_tube,
+                                        contrasted_noise_transformation_tube, optical_flow_redo_tube,
+                                        frame_transformation_tube)
 from .rendering.util import generate_random_seed, memory_utils, filename_utils, web_ui_utils
 from .rendering.util.call.gen import call_generate
 from .rendering.util.call.video_and_audio import call_render_preview
-from .rendering.util.image_utils import add_overlay_mask_if_active, force_to_grayscale_if_required
-from .rendering.util.log_utils import print_animation_frame_info, print_optical_flow_info, print_redo_generation_info
+from .rendering.util.log_utils import (print_animation_frame_info, print_optical_flow_info,
+                                       print_redo_generation_info, print_warning_generate_returned_no_image)
 from .save_images import save_image
 from .seed import next_seed
 
@@ -45,7 +45,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
 
 def run_render_animation(init):
     images = Images.create(init)
-    turbo = Turbo.create(init)  # state for interpolating between diffusion steps
+    turbo = Turbo.create(init)
     indexes = Indexes.create(init, turbo)
     mask = Mask.create(init, indexes.frame.i)  # reset mask vals as they are overwritten in the compose_mask algorithm
     web_ui_utils.init_job(init)
@@ -60,45 +60,20 @@ def run_render_animation(init):
         maybe_emit_in_between_frames(init, indexes, step, turbo, images)
 
         images.color_match = Step.create_color_match_for_video(init, indexes)
-
-        # transform image
         images.previous = transform_and_update_noised_sample(init, indexes, step, images, mask)
-
-        init.prepare_generation(indexes, step, mask)
-        memory_utils.handle_vram_if_depth_is_predicted(init)
-
-        # optical flow redo before generation
+        init.prepare_generation(init, indexes, step, mask)
         maybe_redo_optical_flow(init, indexes, step, images)
-
-        # diffusion redo
         maybe_redo_diffusion(init, indexes, step, images)
 
-        # generation
         image = call_generate(init, indexes.frame.i, step.schedule)
-
-        if image is None:  # TODO throw error or log warning or something
+        if image is None:
+            print_warning_generate_returned_no_image()
             break
 
-        # do hybrid video after generation
-        image = conditional_hybrid_video_after_generation_tube(init, indexes, step)(image)
-
-        # color matching on first frame is after generation, color match was collected earlier,
-        # so we do an extra generation to avoid the corruption introduced by the color match of first output
-        image = conditional_extra_color_match_tube(init, indexes, images)(image)
-
-        image = force_to_grayscale_if_required(init, image)
-        image = add_overlay_mask_if_active(init, image)
-
-        # on strength 0, set color match to generation
+        image = conditional_frame_transformation_tube(init, indexes, step, images)(image)
         images.color_match = conditional_color_match_tube(init, step)(image)
-
-        opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        if not init.animation_mode.has_video_input:
-            images.previous = opencv_image
-
-        next_frame, step.depth = progress_step(init, indexes, turbo, opencv_image, image, step.depth)
+        next_frame, step.depth = progress_step(init, indexes, turbo, images, image, step.depth)
         indexes.update_frame(next_frame)
-
         state.assign_current_image(image)
         # may reassign init.args.args and/or root.seed_internal
         init.args.args.seed = next_seed(init.args.args, init.args.root)  # TODO group all seeds and sub-seeds
@@ -146,8 +121,11 @@ def generate_depth_maps_if_active(init):
         return depth
 
 
-def progress_step(init, idx, turbo, opencv_image, image, depth):
+def progress_step(init, idx, turbo, images, image, depth):
     """Will progress frame or turbo-frame step and return next index and `depth`."""
+    opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    if not init.animation_mode.has_video_input:
+        images.previous = opencv_image
     if turbo.has_steps():
         return idx.frame.i + turbo.progress_step(idx, opencv_image), depth
     else:
