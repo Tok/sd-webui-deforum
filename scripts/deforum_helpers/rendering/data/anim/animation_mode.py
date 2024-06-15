@@ -73,9 +73,7 @@ class AnimationMode:
 
     @staticmethod
     def initial_hybrid_files(sa) -> list[Path]:
-        """
-        Returns a list of initial hybrid input files if required, otherwise an empty list.
-        """
+        """Returns a list of initial hybrid input files if required, otherwise an empty list."""
         if AnimationMode._is_requiring_hybrid_frames(sa.anim_args):
             # may cause side effects on args and anim_args.
             _, __, init_hybrid_input_files = hybrid_generation(sa.args, sa.anim_args, sa.root)

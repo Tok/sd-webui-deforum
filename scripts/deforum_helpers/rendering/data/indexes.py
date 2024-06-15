@@ -6,6 +6,9 @@ class IndexWithStart:
     start: int = 0
     i: int = 0
 
+    def copy(self):
+        return IndexWithStart(start=self.start, i=self.i)
+
 
 @dataclass(init=True, frozen=False, repr=False, eq=False)
 class Indexes:
@@ -14,7 +17,7 @@ class Indexes:
 
     @staticmethod
     def create(init, turbo):
-        frame_start = turbo.find_start(init, turbo)
+        frame_start = turbo.find_start(init)
         tween_start = 0
         return Indexes(IndexWithStart(frame_start, 0), IndexWithStart(tween_start, 0))
 
@@ -23,7 +26,7 @@ class Indexes:
         """Creates a new `Indexes` object based on the last one, but updates the tween start index."""
         return Indexes(last_indexes.frame, IndexWithStart(last_indexes.tween.start, i))
 
-    def create_next(self):
+    def create_next_tween(self):
         return Indexes(self.frame, IndexWithStart(self.tween.start, self.tween.i + 1))
 
     def update_tween_start(self, turbo):
@@ -38,3 +41,8 @@ class Indexes:
 
     def is_first_frame(self):
         return self.frame.i == 0
+
+    def copy(self):
+        return Indexes(
+            frame=self.frame.copy() if self.frame else None,
+            tween=self.tween.copy() if self.tween else None)

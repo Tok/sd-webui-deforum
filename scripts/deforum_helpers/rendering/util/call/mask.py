@@ -8,6 +8,6 @@ def call_compose_mask_with_check(init, mask_seq, val_masks, image):
 
 
 def call_unsharp_mask(init, step, image, mask):
-    kernel_size = (step.init.kernel, step.init.kernel)
+    kernel_size = (step.step_data.kernel, step.step_data.kernel)
     mask_image = mask.image if init.args.args.use_mask else None
-    return unsharp_mask(image, kernel_size, step.init.sigma, step.init.amount, step.init.threshold, mask_image)
+    return unsharp_mask(image, kernel_size, step.step_data.sigma, step.step_data.amount, step.step_data.threshold, mask_image)
