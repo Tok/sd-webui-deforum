@@ -124,18 +124,21 @@ class Turbo:
         self.next.image, self.next.index = opencv_image, indexes.frame.i
         return self.steps
 
-    def _set_up_step_vars(self, init, turbo):
+    def _set_up_step_vars(self, data):
         # determine last frame and frame to start on
-        prev_frame, next_frame, prev_img, next_img = call_get_resume_vars(init, turbo)
+        prev_frame, next_frame, prev_img, next_img = call_get_resume_vars(data, self)
         if self.steps > 1:
-            self.prev.image, self.prev.index = prev_img, prev_frame
-            self.next.image, self.next.index = next_img, next_frame
+            self.prev.image, self.prev.index = prev_img, prev_frame if prev_frame >= 0 else 0
+            self.next.image, self.next.index = next_img, next_frame if next_frame >= 0 else 0
 
-    def find_start(self, init, turbo) -> int:
+    def find_start(self, data) -> int:
         """Maybe resume animation (requires at least two frames - see function)."""
         # set start_frame to next frame
-        self._set_up_step_vars(init, turbo)
-        return self.next.index + 1 if init.is_resuming_from_timestring() else 0
+        if data.is_resuming_from_timestring():
+            self._set_up_step_vars(data)
+            return self.next.index + 1
+        else:
+            return 0
 
     def has_steps(self):
         return self.steps > 1

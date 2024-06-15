@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Any, Iterable
 
-from ...data.indexes import Indexes
+from ...data.indexes import Indexes, IndexWithStart
 from ...data.step import Step
 from ...util import image_utils, log_utils, web_ui_utils
 
@@ -21,9 +21,25 @@ class TweenStep:
         return min(0.0, max(1.0, float(last_step) / float(frame_difference)))
 
     @staticmethod
-    def create(indexes, last_step):
-        tween = float(indexes.tween.i - indexes.tween.start + 1) / float(indexes.frame.i - indexes.tween.start)
-        return TweenStep(indexes, last_step, tween, None, None)
+    def _calculate_expected_tween_frames(num_entries):
+        if num_entries <= 0:
+            raise ValueError("Number of entries must be positive")
+        offset = 1.0 / num_entries
+        positions = [offset + (i / num_entries) for i in range(num_entries)]
+        return positions
+
+    @staticmethod
+    def _increment(original_indexes, tween_count, from_start):
+        inc = original_indexes.frame.i - tween_count - original_indexes.tween.start + from_start
+        original_indexes.tween = IndexWithStart(original_indexes.tween.start, original_indexes.tween.start + inc)
+        return original_indexes
+
+    @staticmethod
+    def create_steps_from_values(last_step, values):
+        count = len(values)
+        r = range(count)
+        indexes_list = [TweenStep._increment(last_step.render_data.indexes.copy(), count, i + 1) for i in r]
+        return list((TweenStep(indexes_list[i], last_step, values[i], None, None) for i in r))
 
     @staticmethod
     def create_indexes(base_indexes: Indexes, frame_range: Iterable[int]) -> list[Indexes]:
@@ -31,12 +47,11 @@ class TweenStep:
 
     @staticmethod
     def create_steps(last_step, tween_indexes_list: list[Indexes]) -> list['TweenStep']:
-        return [TweenStep.create(i.create_next(), last_step) for i in tween_indexes_list]
-
-    @staticmethod
-    def create_directly(from_index, to_index):
-        tween = TweenStep._calculate_tween_from_indices(from_index, to_index)
-        return TweenStep(tween, None, None)
+        if len(tween_indexes_list) > 0:
+            expected_tween_frames = TweenStep._calculate_expected_tween_frames(len(tween_indexes_list))
+            return TweenStep.create_steps_from_values(last_step, expected_tween_frames)
+        else:
+            return list()
 
     def generate_tween_image(self, data, grayscale_tube, overlay_mask_tube):
         is_tween = True
