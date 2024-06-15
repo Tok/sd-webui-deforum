@@ -32,6 +32,7 @@ from .rendering.img_2_img_tubes import (conditional_color_match_tube, conditiona
 from .rendering.util import generate_random_seed, memory_utils, filename_utils, web_ui_utils
 from .rendering.util.call.gen import call_generate
 from .rendering.util.call.video_and_audio import call_render_preview
+from .rendering.util.image_utils import save_and_return_frame
 from .rendering.util.log_utils import (print_animation_frame_info, print_optical_flow_info,
                                        print_redo_generation_info, print_warning_generate_returned_no_image)
 from .save_images import save_image
@@ -88,26 +89,25 @@ def maybe_emit_in_between_frames(init, indexes, step, turbo, images):
         emit_frames_between_index_pair(init, indexes, step, turbo, images, tween_frame_start_i, indexes.frame.i)
 
 
-def emit_frames_between_index_pair(init, indexes, step, turbo, images, tween_frame_start_i, frame_i):
+def emit_frames_between_index_pair(init, indexes, last_step, turbo, images, tween_frame_start_i, frame_i):
     """Emits tween frames (also known as turbo- or cadence-frames) between the provided indices."""
-    # TODO refactor until this works with just 2 args: RenderInit and a collection of immutable TweenStep objects.
-    indexes.update_tween_start(turbo)
-
     tween_range = range(tween_frame_start_i, frame_i)
+    tween_indexes_list: List[Indexes] = TweenStep.create_indexes(indexes, tween_range)
+    tween_steps: List[TweenStep] = TweenStep.create_steps(last_step, tween_indexes_list)
+    indexes.update_tween_start(turbo)  # TODO...
+    emit_tween_frames(init, tween_steps, turbo, images)
 
-    # TODO Instead of indexes, pass a set of TweenStep objects to be processed instead of creating them in the loop.
-    for tween_index in tween_range:
-        # TODO tween index shouldn't really be updated and passed around like this here.
-        #  ideally provide index data within an immutable TweenStep instance.
-        indexes.update_tween(tween_index)  # TODO Nope
 
-        tween_step = TweenStep.create(indexes)
+def emit_tween_frames(init, tween_steps, turbo, images):
+    """Emits a tween frame for each provided tween_step."""
+    for tween_step in tween_steps:
+        tween_step.handle_synchronous_status_concerns(init)
+        tween_step.process(init, turbo, images)  # side effects on turbo and on step
 
-        TweenStep.handle_synchronous_status_concerns(init, indexes, step, tween_step)
-        TweenStep.process(init, indexes, step, turbo, images, tween_step)
-        new_image = TweenStep.generate_and_save_frame(init, indexes, step, turbo, tween_step)
-
-        images.previous = new_image  # TODO shouldn't
+        new_image = tween_step.generate(init, turbo)
+        # TODO pass depth instead of tween_step.indexes
+        new_image = save_and_return_frame(init, tween_step.indexes, new_image)
+        images.previous = new_image  # updating reference images to calculate hybrid motions in next iteration
 
 
 def generate_depth_maps_if_active(init):

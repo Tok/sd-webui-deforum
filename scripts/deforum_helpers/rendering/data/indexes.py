@@ -18,8 +18,13 @@ class Indexes:
         tween_start = 0
         return Indexes(IndexWithStart(frame_start, 0), IndexWithStart(tween_start, 0))
 
-    def update_tween(self, i: int):
-        self.tween = IndexWithStart(self.tween.start, i)
+    @staticmethod
+    def create_from_last(last_indexes, i: int):
+        """Creates a new `Indexes` object based on the last one, but updates the tween start index."""
+        return Indexes(last_indexes.frame, IndexWithStart(last_indexes.tween.start, i))
+
+    def create_next(self):
+        return Indexes(self.frame, IndexWithStart(self.tween.start, self.tween.i + 1))
 
     def update_tween_start(self, turbo):
         tween_start = max(self.frame.start, self.frame.i - turbo.steps)

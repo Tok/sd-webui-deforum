@@ -101,11 +101,11 @@ class Step:
             self.subtitle_params_string = call_format_animation_params(init, indexes.frame.i, params_to_print)
             call_write_frame_subtitle(init, indexes.frame.i, params_string)
 
-    def write_frame_subtitle_if_active(self, init, indexes):
+    def write_frame_subtitle_if_active(self, init):
         if opt_utils.is_generate_subtitles(init):
             self.subtitle_params_to_print = opt_utils.generation_info_for_subtitles(init)
-            self.subtitle_params_string = call_format_animation_params(init, indexes.tween.i, params_to_print)
-            call_write_frame_subtitle(init, indexes.tween.i, params_string, sub_step.tween < 1.0)
+            self.subtitle_params_string = call_format_animation_params(init, self.indexes.tween.i, params_to_print)
+            call_write_frame_subtitle(init, self.indexes.tween.i, params_string, sub_step.tween < 1.0)
 
     def apply_frame_warp_transform(self, init, indexes, image):
         previous, self.depth = call_anim_frame_warp(init, indexes.frame.i, image, None)
