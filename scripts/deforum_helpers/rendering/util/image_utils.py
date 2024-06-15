@@ -16,3 +16,8 @@ def save_cadence_frame_and_depth_map_if_active(init, indexes, image):
     if init.args.anim_args.save_depth_maps:
         dm_save_path = os.path.join(init.output_directory, filename_utils.tween_depth_frame(init, indexes))
         init.depth_model.save(dm_save_path, step.depth)
+
+
+def save_and_return_frame(init, indexes, image):
+    save_cadence_frame_and_depth_map_if_active(init, indexes, image)
+    return image
