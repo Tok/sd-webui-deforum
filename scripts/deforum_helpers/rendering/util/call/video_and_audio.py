@@ -1,8 +1,9 @@
 from ....video_audio_utilities import get_next_frame, render_preview
 
 
-def call_render_preview(init, i, last_preview_frame):
+def call_render_preview(init, last_preview_frame):
     ia = init.args
+    i = init.indexes.frame.i
     return render_preview(ia.args, ia.anim_args, ia.video_args, ia.root, i, last_preview_frame)
 
 

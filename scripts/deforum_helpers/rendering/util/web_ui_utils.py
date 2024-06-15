@@ -11,8 +11,8 @@ def init_job(init):
     state.job_count = init.args.anim_args.max_frames
 
 
-def update_job(init, indexes):
-    frame = indexes.frame.i + 1
+def update_job(init):
+    frame = init.indexes.frame.i + 1
     max_frames = init.args.anim_args.max_frames
     state.job = f"frame {frame}/{max_frames}"
     state.job_no = frame + 1
@@ -24,8 +24,8 @@ def update_job(init, indexes):
         print("** RESUMING **")
 
 
-def update_status_tracker(init, indexes):
-    progress = indexes.frame.i / init.args.anim_args.max_frames
+def update_status_tracker(init):
+    progress = init.indexes.frame.i / init.args.anim_args.max_frames
     JobStatusTracker().update_phase(init.args.root.job_id, phase="GENERATING", progress=progress)
 
 

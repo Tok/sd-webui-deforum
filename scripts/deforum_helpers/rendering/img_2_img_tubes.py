@@ -26,52 +26,52 @@ transformed_image = my_tube(arguments)(original_image)
 ImageTube = Callable[[MatLike], MatLike]
 
 
-def frame_transformation_tube(init, indexes, step, images) -> ImageTube:
+def frame_transformation_tube(init, step) -> ImageTube:
     # make sure `img` stays the last argument in each call.
-    return tube(lambda img: step.apply_frame_warp_transform(init, indexes, img),
-                lambda img: step.do_hybrid_compositing_before_motion(init, indexes, img),
-                lambda img: Step.apply_hybrid_motion_ransac_transform(init, indexes, images, img),
-                lambda img: Step.apply_hybrid_motion_optical_flow(init, indexes, images, img),
-                lambda img: step.do_normal_hybrid_compositing_after_motion(init, indexes, img),
-                lambda img: Step.apply_color_matching(init, images, img),
-                lambda img: Step.transform_to_grayscale_if_active(init, images, img))
+    return tube(lambda img: step.apply_frame_warp_transform(init, img),
+                lambda img: step.do_hybrid_compositing_before_motion(init, img),
+                lambda img: Step.apply_hybrid_motion_ransac_transform(init, img),
+                lambda img: Step.apply_hybrid_motion_optical_flow(init, img),
+                lambda img: step.do_normal_hybrid_compositing_after_motion(init, img),
+                lambda img: Step.apply_color_matching(init, img),
+                lambda img: Step.transform_to_grayscale_if_active(init, img))
 
 
-def contrast_transformation_tube(init, step, mask) -> ImageTube:
+def contrast_transformation_tube(init, step) -> ImageTube:
     return tube(lambda img: step.apply_scaling(img),
-                lambda img: step.apply_anti_blur(init, mask, img))
+                lambda img: step.apply_anti_blur(init, img))
 
 
 def noise_transformation_tube(init, step) -> ImageTube:
     return tube(lambda img: step.apply_frame_noising(init, step, img))
 
 
-def optical_flow_redo_tube(init, optical_flow, images) -> ImageTube:
+def optical_flow_redo_tube(init, optical_flow) -> ImageTube:
     return tube(lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
                 lambda img: cv2.cvtColor(img, cv2.COLOR_BGR2RGB),
                 lambda img: image_transform_optical_flow(  # TODO create img.get_flow
-                    img, call_get_flow_from_images(init, images.previous, img, optical_flow),
+                    img, call_get_flow_from_images(init, init.images.previous, img, optical_flow),
                     step.init.redo_flow_factor))
 
 
 # Conditional Tubes (can be switched on or off by providing a Callable[Boolean] `is_do_process` predicate).
-def conditional_hybrid_video_after_generation_tube(init, indexes, step) -> ImageTube:
+def conditional_hybrid_video_after_generation_tube(init, step) -> ImageTube:
     return tube(lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
-                lambda img: call_hybrid_composite(init, indexes.frame.i, img, step.init.hybrid_comp_schedules),
+                lambda img: call_hybrid_composite(init, init.indexes.frame.i, img, step.init.hybrid_comp_schedules),
                 lambda img: Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)),
                 is_do_process=
-                lambda: indexes.is_not_first_frame() and init.is_hybrid_composite_after_generation())
+                lambda: init.indexes.is_not_first_frame() and init.is_hybrid_composite_after_generation())
 
 
-def conditional_extra_color_match_tube(init, indexes, images) -> ImageTube:
+def conditional_extra_color_match_tube(init) -> ImageTube:
     # color matching on first frame is after generation, color match was collected earlier,
     # so we do an extra generation to avoid the corruption introduced by the color match of first output
-    return tube(lambda img: maintain_colors(img, images.color_match, init.args.anim_args.color_coherence),
+    return tube(lambda img: maintain_colors(img, init.images.color_match, init.args.anim_args.color_coherence),
                 lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
-                lambda img: maintain_colors(img, images.color_match, init.args.anim_args.color_coherence),
+                lambda img: maintain_colors(img, init.images.color_match, init.args.anim_args.color_coherence),
                 lambda img: Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)),
                 is_do_process=
-                lambda: indexes.is_first_frame() and init.is_color_match_to_be_initialized(images.color_match))
+                lambda: init.indexes.is_first_frame() and init.is_initialize_color_match(init.images.color_match))
 
 
 def conditional_color_match_tube(init, step) -> ImageTube:
@@ -86,10 +86,10 @@ def conditional_force_to_grayscale_tube(init) -> ImageTube:
                 is_do_process=lambda: init.args.anim_args.color_force_grayscale)
 
 
-def conditional_add_overlay_mask_tube(init, indexes, is_tween) -> ImageTube:
+def conditional_add_overlay_mask_tube(init, is_tween) -> ImageTube:
     is_use_overlay = init.args.args.overlay_mask
     is_use_mask = init.args.anim_args.use_mask_video or init.args.args.use_mask
-    index = indexes.tween.i if is_tween else indexes.frame.i
+    index = init.indexes.tween.i if is_tween else init.indexes.frame.i
     is_bgr_array = True
     return tube(lambda img: ImageOps.grayscale(img),
                 lambda img: do_overlay_mask(init.args.args, init.args.anim_args, img, index, is_bgr_array),
@@ -103,16 +103,16 @@ def conditional_force_tween_to_grayscale_tube(init) -> ImageTube:
 
 
 # Composite Tubes, made from other Tubes.
-def contrasted_noise_transformation_tube(init, step, mask) -> ImageTube:
+def contrasted_noise_transformation_tube(init, step) -> ImageTube:
     """Combines contrast and noise transformation tubes."""
-    contrast_tube: Tube = contrast_transformation_tube(init, step, mask)
+    contrast_tube: Tube = contrast_transformation_tube(init, step)
     noise_tube: Tube = noise_transformation_tube(init, step)
     return tube(lambda img: noise_tube(contrast_tube(img)))
 
 
-def conditional_frame_transformation_tube(init, indexes, step, images, is_tween: bool = False) -> ImageTube:
-    hybrid_tube: Tube = conditional_hybrid_video_after_generation_tube(init, indexes, step)
-    extra_tube: Tube = conditional_extra_color_match_tube(init, indexes, images)
+def conditional_frame_transformation_tube(init, step, is_tween: bool = False) -> ImageTube:
+    hybrid_tube: Tube = conditional_hybrid_video_after_generation_tube(init, step)
+    extra_tube: Tube = conditional_extra_color_match_tube(init)
     gray_tube: Tube = conditional_force_to_grayscale_tube(init)
-    mask_tube: Tube = conditional_add_overlay_mask_tube(init, indexes, is_tween)
+    mask_tube: Tube = conditional_add_overlay_mask_tube(init, is_tween)
     return tube(lambda img: mask_tube(gray_tube(extra_tube(hybrid_tube(img)))))

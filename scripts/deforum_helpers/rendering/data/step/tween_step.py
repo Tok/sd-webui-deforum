@@ -40,21 +40,21 @@ class TweenStep:
         tween = TweenStep._calculate_tween_from_indices(from_index, to_index)
         return TweenStep(tween, None, None)
 
-    def generate_tween_image(self, init, turbo):
+    def generate_tween_image(self, init):
         is_tween = True
-        warped = turbo.do_optical_flow_cadence_after_animation_warping(init, self.indexes, self.last_step, self)
+        warped = init.turbo.do_optical_flow_cadence_after_animation_warping(init, self.indexes, self.last_step, self)
         recolored = conditional_force_tween_to_grayscale_tube(init)(warped)
-        masked = conditional_add_overlay_mask_tube(init, self.indexes, is_tween)(recolored)
+        masked = conditional_add_overlay_mask_tube(init, is_tween)(recolored)
         return masked
 
-    def generate(self, init, turbo):
-        return self.generate_tween_image(init, turbo)
+    def generate(self, init):
+        return self.generate_tween_image(init)
 
-    def process(self, init, turbo, images):
-        turbo.advance_optical_flow_cadence_before_animation_warping(init, self)
-        self.last_step.update_depth_prediction(init, turbo)
-        turbo.advance(init, self.indexes.tween.i, self.last_step.depth)
-        turbo.do_hybrid_video_motion(init, self.indexes, images)
+    def process(self, init):
+        init.turbo.advance_optical_flow_cadence_before_animation_warping(init, self)
+        self.last_step.update_depth_prediction(init, init.turbo)
+        init.turbo.advance(init, self.indexes.tween.i, self.last_step.depth)
+        init.turbo.do_hybrid_video_motion(init, self.indexes, init.images)  # TODO remove self.indexes or init.indexes
 
     def handle_synchronous_status_concerns(self, init):
         self.last_step.write_frame_subtitle_if_active(init)  # TODO decouple from execution and calc all in advance?

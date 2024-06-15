@@ -3,8 +3,8 @@ YELLOW = "\033[33m"
 RESET = "\033[0m"
 
 
-def print_animation_frame_info(init, indexes):
-    print(f"{CYAN}Animation frame: {RESET}{indexes.frame.i}/{init.args.anim_args.max_frames}")
+def print_animation_frame_info(init):
+    print(f"{CYAN}Animation frame: {RESET}{init.indexes.frame.i}/{init.args.anim_args.max_frames}")
 
 
 def print_tween_frame_info(init, indexes, cadence_flow, tween):

@@ -9,7 +9,11 @@ import pandas as pd
 from PIL import Image
 
 from .anim import AnimationKeys, AnimationMode
+from .images import Images
+from .indexes import Indexes
+from .mask import Mask
 from .subtitle import Srt
+from .turbo import Turbo
 from ..util import memory_utils, opt_utils
 from ..util.call.mask import call_compose_mask_with_check
 from ..util.call.video_and_audio import call_get_next_frame
@@ -37,6 +41,10 @@ class RenderInitArgs:
 @dataclass(init=True, frozen=True, repr=False, eq=False)
 class RenderInit:
     """The purpose of this class is to group and control all data used in render_animation"""
+    images: Images | None
+    turbo: Turbo | None
+    indexes: Indexes | None
+    mask: Mask | None
     seed: int
     args: RenderInitArgs
     parseq_adapter: Any
@@ -51,6 +59,7 @@ class RenderInit:
     @staticmethod
     def create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root) -> 'RenderInit':
         ri_args = RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
+
         output_directory = args.outdir
         is_use_mask = args.use_mask
         parseq_adapter = RenderInit.create_parseq_adapter(ri_args)
@@ -60,7 +69,17 @@ class RenderInit:
         prompt_series = RenderInit.select_prompts(parseq_adapter, anim_args, animation_keys, root)
         depth_model = RenderInit.create_depth_model_and_enable_depth_map_saving_if_active(
             animation_mode, root, anim_args, args)
-        instance = RenderInit(args.seed, ri_args, parseq_adapter, srt, animation_keys,
+
+        # Temporary instance only exists for using it to easily create other objects required by the actual instance.
+        # Feels slightly awkward, but it's probably not worth optimizing since only 1st and gc can take care of it fine.
+        incomplete_init = RenderInit(None, None, None, None, args.seed, ri_args, parseq_adapter, srt, animation_keys,
+                                     animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
+        images = Images.create(incomplete_init)
+        turbo = Turbo.create(incomplete_init)
+        indexes = Indexes.create(incomplete_init, turbo)
+        mask = Mask.create(incomplete_init, indexes.frame.i)
+
+        instance = RenderInit(images, turbo, indexes, mask, args.seed, ri_args, parseq_adapter, srt, animation_keys,
                               animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
         RenderInit.init_looper_if_active(args, loop_args)
         RenderInit.handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
@@ -109,7 +128,7 @@ class RenderInit:
     def is_hybrid_composite_after_generation(self) -> bool:
         return self.args.anim_args.hybrid_composite == 'After Generation'
 
-    def is_color_match_to_be_initialized(self, color_match_sample):
+    def is_initialize_color_match(self, color_match_sample):
         """Determines whether to initialize color matching based on the given conditions."""
         has_video_input = self.args.anim_args.color_coherence == 'Video Input' and self.is_hybrid_available()
         has_image_color_coherence = self.args.anim_args.color_coherence == 'Image'
@@ -260,15 +279,15 @@ class RenderInit:
             else:
                 self.args.args.mask_image = None  # we need it only after the first frame anyway
 
-    def prepare_generation(self, init, indexes, step, mask):
+    def prepare_generation(self, init, step):
         # TODO move all of this to Step?
-        self.update_some_args_for_current_step(indexes, step)
-        self.update_seed_and_checkpoint_for_current_step(indexes)
-        self.update_sub_seed_schedule_for_current_step(indexes)
-        self.prompt_for_current_step(indexes)
-        self.update_video_data_for_current_frame(indexes, step)
-        self.update_mask_image(step, mask)
-        self.animation_keys.update(indexes.frame.i)
+        self.update_some_args_for_current_step(init.indexes, step)
+        self.update_seed_and_checkpoint_for_current_step(init.indexes)
+        self.update_sub_seed_schedule_for_current_step(init.indexes)
+        self.prompt_for_current_step(init.indexes)
+        self.update_video_data_for_current_frame(init.indexes, step)
+        self.update_mask_image(step, init.mask)
+        self.animation_keys.update(init.indexes.frame.i)
         opt_utils.setup(self, step.schedule)
         memory_utils.handle_vram_if_depth_is_predicted(init)
 
