@@ -41,7 +41,7 @@ class RenderInitArgs:
 @dataclass(init=True, frozen=True, repr=False, eq=False)
 class RenderData:
     """The purpose of this class is to group and control all data used in render_animation"""
-    images: Images | None
+    images: Images | None  # TODO rename to reference_images?
     turbo: Turbo | None
     indexes: Indexes | None
     mask: Mask | None

@@ -23,7 +23,6 @@ from PIL import Image
 from modules.shared import opts, state
 
 from .colors import maintain_colors
-from .rendering.data import Indexes
 from .rendering.data.render_data import RenderData
 from .rendering.data.step import Step, TweenStep
 from .rendering.img_2_img_tubes import (conditional_color_match_tube, conditional_frame_transformation_tube,
@@ -32,7 +31,6 @@ from .rendering.img_2_img_tubes import (conditional_color_match_tube, conditiona
 from .rendering.util import generate_random_seed, memory_utils, filename_utils, web_ui_utils
 from .rendering.util.call.gen import call_generate
 from .rendering.util.call.video_and_audio import call_render_preview
-from .rendering.util.image_utils import save_and_return_frame
 from .rendering.util.log_utils import (print_optical_flow_info, print_redo_generation_info,
                                        print_warning_generate_returned_no_image)
 from .save_images import save_image
@@ -48,10 +46,10 @@ def run_render_animation(data: RenderData):
     web_ui_utils.init_job(data)
     last_preview_frame = 0
     while data.indexes.frame.i < data.args.anim_args.max_frames:
-        step = Step.do_start_and_create(data)  # TODO step should have an immutable init?
-        step.write_frame_subtitle(data)  # TODO move step concerns from init to step..
+        step = Step.do_start_and_create(data)
+        step.maybe_write_frame_subtitle()
 
-        maybe_emit_in_between_frames(data, step)
+        TweenStep.maybe_emit_in_between_frames(step)  # TODO? make Step/TweenStep union and check if step is TweenStep
 
         data.images.color_match = Step.create_color_match_for_video(data)  # TODO move to step?
         data.images.previous = transform_and_update_noised_sample(data, step)  # TODO move to step?
@@ -74,33 +72,6 @@ def run_render_animation(data: RenderData):
         last_preview_frame = call_render_preview(data, last_preview_frame)
         web_ui_utils.update_status_tracker(data)
         data.animation_mode.unload_raft_and_depth_model()
-
-
-def maybe_emit_in_between_frames(init, step):
-    if init.turbo.is_emit_in_between_frames():
-        tween_frame_start_i = max(init.indexes.frame.start, init.indexes.frame.i - init.turbo.steps)
-        emit_frames_between_index_pair(init, step, tween_frame_start_i, init.indexes.frame.i)
-
-
-def emit_frames_between_index_pair(init, last_step, tween_frame_start_i, frame_i):
-    """Emits tween frames (also known as turbo- or cadence-frames) between the provided indices."""
-    tween_range = range(tween_frame_start_i, frame_i)
-    tween_indexes_list: List[Indexes] = TweenStep.create_indexes(init.indexes, tween_range)
-    tween_steps: List[TweenStep] = TweenStep.create_steps(last_step, tween_indexes_list)
-    init.indexes.update_tween_start(init.turbo)  # TODO...
-    emit_tween_frames(init, tween_steps)
-
-
-def emit_tween_frames(init, tween_steps):
-    """Emits a tween frame for each provided tween_step."""
-    for tween_step in tween_steps:
-        tween_step.handle_synchronous_status_concerns(init)
-        tween_step.process(init)  # side effects on turbo and on step
-
-        new_image = tween_step.generate(init)
-        # TODO pass depth instead of tween_step.indexes
-        new_image = save_and_return_frame(init, tween_step.indexes, new_image)
-        init.images.previous = new_image  # updating reference images to calculate hybrid motions in next iteration
 
 
 def generate_depth_maps_if_active(init):

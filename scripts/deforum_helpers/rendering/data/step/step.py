@@ -7,7 +7,7 @@ import numpy as np
 from ..render_data import RenderData
 from ..schedule import Schedule
 from ..turbo import Turbo
-from ...util import memory_utils, opt_utils, web_ui_utils
+from ...util import image_utils, memory_utils, opt_utils, web_ui_utils
 from ...util.call.anim import call_anim_frame_warp
 from ...util.call.hybrid import (
     call_get_flow_for_hybrid_motion, call_get_flow_for_hybrid_motion_prev,
@@ -72,6 +72,7 @@ class StepData:
 @dataclass(init=True, frozen=False, repr=False, eq=False)
 class Step:
     step_data: StepData
+    render_data: RenderData
     schedule: Schedule
     depth: Any  # TODO try to init early, then freeze class
     subtitle_params_to_print: Any
@@ -84,10 +85,10 @@ class Step:
         print_animation_frame_info(data)
         web_ui_utils.update_job(data)
         # Actual create
-        step_init = StepData.create(data.animation_keys.deform_keys, data.indexes.frame.i)
+        step_data = StepData.create(data.animation_keys.deform_keys, data.indexes.frame.i)
         schedule = Schedule.create(data, data.indexes.frame.i,
                                    data.args.anim_args, data.args.args)
-        return Step(step_init, schedule, None, None, "")
+        return Step(step_data, data, schedule, None, None, "")
 
     def is_optical_flow_redo_before_generation(self, optical_flow_redo_generation, images):
         has_flow_redo = optical_flow_redo_generation != 'None'
@@ -102,7 +103,8 @@ class Step:
             precision = data.args.root.half_precision
             self.depth = data.depth_model.predict(image, weight, precision)
 
-    def write_frame_subtitle(self, data: RenderData):
+    def maybe_write_frame_subtitle(self):
+        data = self.render_data
         if data.turbo.is_first_step_with_subtitles(data):
             self.subtitle_params_to_print = opt_utils.generation_info_for_subtitles(data)
             self.subtitle_params_string = call_format_animation_params(data, data.indexes.frame.i, params_to_print)
