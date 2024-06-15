@@ -1,6 +1,7 @@
 import collections.abc
 from functools import reduce
 from itertools import chain
+from typing import Callable, TypeVar
 
 
 def flat_map(func, iterable):
@@ -12,6 +13,9 @@ def flat_map(func, iterable):
         return mapped_iterable
 
 
-def tube(*funcs, is_do_process=lambda: True):
+T = TypeVar('T')
+
+
+def tube(*funcs: Callable[[T], T], is_do_process=lambda: True) -> Callable[[T], T]:
     """Tubes a value through a sequence of functions with a predicate `is_do_process` for skipping."""
     return lambda value: reduce(lambda x, f: f(x) if is_do_process() else x, funcs, value)
