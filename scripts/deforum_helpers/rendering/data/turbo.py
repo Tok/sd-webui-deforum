@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 
 from cv2.typing import MatLike
-from ...hybrid_video import image_transform_ransac, image_transform_optical_flow
 
 from .subtitle import Srt
 from ..util.call.anim import call_anim_frame_warp
 from ..util.call.resume import call_get_resume_vars
+from ...hybrid_video import image_transform_ransac, image_transform_optical_flow
 
 
 @dataclass(init=True, frozen=False, repr=False, eq=True)
@@ -49,7 +49,7 @@ class Turbo:
         self.next.image = image_transform_optical_flow(self.next.image, flow, flow_factor)
 
     def advance_optical_tween_flow(self, step, flow):
-        ff = step.init.flow_factor()
+        ff = step.step_data.flow_factor()
         i = indexes.tween.i
         if self.is_advance_prev(i):
             self.prev.image = image_transform_optical_flow(self.prev.image, flow, ff)
@@ -67,7 +67,7 @@ class Turbo:
             init.animation_mode.prev_flow = flow
 
     def advance_cadence_flow(self, tween_step):
-        ff = step.init.sub_step.cadence_flow_factor
+        ff = step.step_data.sub_step.cadence_flow_factor
         i = indexes.tween.i
         inc = tween_step.cadence_flow_inc
         if self.is_advance_prev(i):
@@ -152,8 +152,8 @@ class Turbo:
     def is_first_step(self) -> bool:
         return self.steps == 1
 
-    def is_first_step_with_subtitles(self, init) -> bool:
-        return self.is_first_step() and Srt.is_subtitle_generation_active(init.args.opts.data)
+    def is_first_step_with_subtitles(self, render_data) -> bool:
+        return self.is_first_step() and Srt.is_subtitle_generation_active(render_data.args.opts.data)
 
     def is_emit_in_between_frames(self) -> bool:
         return self.steps > 1

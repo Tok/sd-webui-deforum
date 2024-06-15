@@ -24,7 +24,7 @@ from modules.shared import opts, state
 
 from .colors import maintain_colors
 from .rendering.data import Indexes
-from .rendering.data.initialization import RenderInit
+from .rendering.data.render_data import RenderData
 from .rendering.data.step import Step, TweenStep
 from .rendering.img_2_img_tubes import (conditional_color_match_tube, conditional_frame_transformation_tube,
                                         contrasted_noise_transformation_tube, optical_flow_redo_tube,
@@ -40,40 +40,40 @@ from .seed import next_seed
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
-    init = RenderInit.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
-    run_render_animation(init)
+    render_data = RenderData.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
+    run_render_animation(render_data)
 
 
-def run_render_animation(init):
-    web_ui_utils.init_job(init)
+def run_render_animation(data: RenderData):
+    web_ui_utils.init_job(data)
     last_preview_frame = 0
-    while init.indexes.frame.i < init.args.anim_args.max_frames:
-        step = Step.do_start_and_create(init)  # TODO step should have an immutable init?
-        step.write_frame_subtitle(init)  # TODO move step concerns from init to step..
+    while data.indexes.frame.i < data.args.anim_args.max_frames:
+        step = Step.do_start_and_create(data)  # TODO step should have an immutable init?
+        step.write_frame_subtitle(data)  # TODO move step concerns from init to step..
 
-        maybe_emit_in_between_frames(init, step)
+        maybe_emit_in_between_frames(data, step)
 
-        init.images.color_match = Step.create_color_match_for_video(init)  # TODO move to step?
-        init.images.previous = transform_and_update_noised_sample(init, step)  # TODO move to step?
-        init.prepare_generation(init, step)  # TODO move to step?
-        maybe_redo_optical_flow(init, step)  # TODO move to step?
-        maybe_redo_diffusion(init, step)  # TODO move to step?
+        data.images.color_match = Step.create_color_match_for_video(data)  # TODO move to step?
+        data.images.previous = transform_and_update_noised_sample(data, step)  # TODO move to step?
+        data.prepare_generation(data, step)  # TODO move to step?
+        maybe_redo_optical_flow(data, step)  # TODO move to step?
+        maybe_redo_diffusion(data, step)  # TODO move to step?
 
-        image = call_generate(init, step)  # TODO move to step?
+        image = call_generate(data, step)  # TODO move to step?
         if image is None:
             print_warning_generate_returned_no_image()
             break
 
-        image = conditional_frame_transformation_tube(init, step)(image)  # TODO move to step?
-        init.images.color_match = conditional_color_match_tube(init, step)(image)  # TODO move to step?
-        next_frame, step.depth = progress_step(init, image, step.depth)  # TODO move to step?
-        init.indexes.update_frame(next_frame)
+        image = conditional_frame_transformation_tube(data, step)(image)  # TODO move to step?
+        data.images.color_match = conditional_color_match_tube(data, step)(image)  # TODO move to step?
+        next_frame, step.depth = progress_step(data, image, step.depth)  # TODO move to step?
+        data.indexes.update_frame(next_frame)
         state.assign_current_image(image)
         # may reassign init.args.args and/or root.seed_internal
-        init.args.args.seed = next_seed(init.args.args, init.args.root)  # TODO group all seeds and sub-seeds
-        last_preview_frame = call_render_preview(init, last_preview_frame)
-        web_ui_utils.update_status_tracker(init)
-        init.animation_mode.unload_raft_and_depth_model()
+        data.args.args.seed = next_seed(data.args.args, data.args.root)  # TODO group all seeds and sub-seeds
+        last_preview_frame = call_render_preview(data, last_preview_frame)
+        web_ui_utils.update_status_tracker(data)
+        data.animation_mode.unload_raft_and_depth_model()
 
 
 def maybe_emit_in_between_frames(init, step):
@@ -148,7 +148,7 @@ def maybe_redo_optical_flow(init, step):
 
 
 def maybe_redo_diffusion(init, step):
-    is_diffusion_redo = init.has_positive_diffusion_redo and init.images.has_previous() and step.init.has_strength()
+    is_diffusion_redo = init.has_positive_diffusion_redo and init.images.has_previous() and step.step_data.has_strength()
     is_not_preview = init.is_not_in_motion_preview_mode()
     if is_diffusion_redo and is_not_preview:
         do_diffusion_redo(init, step)

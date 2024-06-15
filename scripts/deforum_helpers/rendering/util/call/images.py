@@ -4,7 +4,7 @@ from ....noise import add_noise
 
 def call_add_noise(init, step, image):
     aa = init.args.anim_args
-    amount: float = step.init.noise
+    amount: float = step.step_data.noise
     seed: int = init.args.args.seed
     n_type: str = aa.noise_type
     perlin_arguments = (aa.perlin_w, aa.perlin_h, aa.perlin_octaves, aa.perlin_persistence)

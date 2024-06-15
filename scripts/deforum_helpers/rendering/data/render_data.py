@@ -39,7 +39,7 @@ class RenderInitArgs:
 
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
-class RenderInit:
+class RenderData:
     """The purpose of this class is to group and control all data used in render_animation"""
     images: Images | None
     turbo: Turbo | None
@@ -57,35 +57,35 @@ class RenderInit:
     is_use_mask: bool
 
     @staticmethod
-    def create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root) -> 'RenderInit':
+    def create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root) -> 'RenderData':
         ri_args = RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
 
         output_directory = args.outdir
         is_use_mask = args.use_mask
-        parseq_adapter = RenderInit.create_parseq_adapter(ri_args)
+        parseq_adapter = RenderData.create_parseq_adapter(ri_args)
         srt = Srt.create_if_active(opts.data, output_directory, root.timestring, video_args.fps)
         animation_keys = AnimationKeys.from_args(ri_args, parseq_adapter, args.seed)
         animation_mode = AnimationMode.from_args(ri_args)
-        prompt_series = RenderInit.select_prompts(parseq_adapter, anim_args, animation_keys, root)
-        depth_model = RenderInit.create_depth_model_and_enable_depth_map_saving_if_active(
+        prompt_series = RenderData.select_prompts(parseq_adapter, anim_args, animation_keys, root)
+        depth_model = RenderData.create_depth_model_and_enable_depth_map_saving_if_active(
             animation_mode, root, anim_args, args)
 
         # Temporary instance only exists for using it to easily create other objects required by the actual instance.
         # Feels slightly awkward, but it's probably not worth optimizing since only 1st and gc can take care of it fine.
-        incomplete_init = RenderInit(None, None, None, None, args.seed, ri_args, parseq_adapter, srt, animation_keys,
+        incomplete_init = RenderData(None, None, None, None, args.seed, ri_args, parseq_adapter, srt, animation_keys,
                                      animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
         images = Images.create(incomplete_init)
         turbo = Turbo.create(incomplete_init)
         indexes = Indexes.create(incomplete_init, turbo)
         mask = Mask.create(incomplete_init, indexes.frame.i)
 
-        instance = RenderInit(images, turbo, indexes, mask, args.seed, ri_args, parseq_adapter, srt, animation_keys,
+        instance = RenderData(images, turbo, indexes, mask, args.seed, ri_args, parseq_adapter, srt, animation_keys,
                               animation_mode, prompt_series, depth_model, output_directory, is_use_mask)
-        RenderInit.init_looper_if_active(args, loop_args)
-        RenderInit.handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
-        RenderInit.create_output_directory_for_the_batch(args.outdir)
-        RenderInit.save_settings_txt(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
-        RenderInit.maybe_resume_from_timestring(anim_args, root)
+        RenderData.init_looper_if_active(args, loop_args)
+        RenderData.handle_controlnet_video_input_frames_generation(controlnet_args, args, anim_args)
+        RenderData.create_output_directory_for_the_batch(args.outdir)
+        RenderData.save_settings_txt(args, anim_args, parseq_args, loop_args, controlnet_args, video_args, root)
+        RenderData.maybe_resume_from_timestring(anim_args, root)
         return instance
 
     def is_3d(self):
@@ -194,7 +194,7 @@ class RenderInit:
         is_legacy_cm = self.args.anim_args.legacy_colormatch
         is_use_init = self.args.args.use_init
         is_not_legacy_with_use_init = not is_legacy_cm and not is_use_init
-        is_legacy_cm_without_strength = is_legacy_cm and step.init.strength == 0
+        is_legacy_cm_without_strength = is_legacy_cm and step.step_data.strength == 0
         is_maybe_special_legacy = is_not_legacy_with_use_init or is_legacy_cm_without_strength
         return is_maybe_special_legacy and self.has_non_video_or_image_color_coherence()
 
@@ -202,7 +202,7 @@ class RenderInit:
         # use transformed previous frame as init for current
         self.args.args.use_init = True
         self.args.root.init_sample = Image.fromarray(cv2.cvtColor(noised_image, cv2.COLOR_BGR2RGB))
-        self.args.args.strength = max(0.0, min(1.0, step.init.strength))
+        self.args.args.strength = max(0.0, min(1.0, step.step_data.strength))
 
     def update_some_args_for_current_step(self, indexes, step):
         i = indexes.frame.i
@@ -210,7 +210,7 @@ class RenderInit:
         # Pix2Pix Image CFG Scale - does *nothing* with non pix2pix checkpoints
         self.args.args.pix2pix_img_cfg_scale = float(keys.pix2pix_img_cfg_scale_series[i])
         self.args.args.prompt = self.prompt_series[i]  # grab prompt for current frame
-        self.args.args.scale = step.init.scale
+        self.args.args.scale = step.step_data.scale
 
     def update_seed_and_checkpoint_for_current_step(self, indexes):
         i = indexes.frame.i
@@ -250,7 +250,7 @@ class RenderInit:
         print_init_frame_info(init_frame)
         self.args.args.init_image = init_frame
         self.args.args.init_image_box = None  # init_image_box not used in this case
-        self.args.args.strength = max(0.0, min(1.0, step.init.strength))
+        self.args.args.strength = max(0.0, min(1.0, step.step_data.strength))
 
     def _update_video_mask_for_current_frame(self, i):
         video_mask_path = self.args.anim_args.video_mask_path
@@ -319,7 +319,7 @@ class RenderInit:
     @staticmethod
     def select_prompts(parseq_adapter, anim_args, animation_keys, root):
         return animation_keys.deform_keys.prompts if parseq_adapter.manages_prompts() \
-            else RenderInit.expand_prompts_out_to_per_frame(anim_args, root)
+            else RenderData.expand_prompts_out_to_per_frame(anim_args, root)
 
     @staticmethod
     def is_composite_with_depth_mask(anim_args):
@@ -330,7 +330,7 @@ class RenderInit:
         # depth-based hybrid composite mask requires saved depth maps
         # TODO avoid or isolate side effect:
         anim_args.save_depth_maps = (anim_mode.is_predicting_depths
-                                     and RenderInit.is_composite_with_depth_mask(anim_args))
+                                     and RenderData.is_composite_with_depth_mask(anim_args))
         return DepthModel(root.models_path,
                           memory_utils.select_depth_device(root),
                           root.half_precision,

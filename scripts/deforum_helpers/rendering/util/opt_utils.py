@@ -12,9 +12,10 @@ def setup(init, schedule):
     put_if_present(data, "eta_ancestral", schedule.eta_ancestral)
 
 
-def generation_info_for_subtitles(init):
-    return init.args.opts.data.get("deforum_save_gen_info_as_srt_params", ['Seed'])
+def generation_info_for_subtitles(render_data):
+    return render_data.args.opts.data.get("deforum_save_gen_info_as_srt_params", ['Seed'])
 
 
-def is_generate_subtitles(init):
-    return init.args.opts.data.get("deforum_save_gen_info_as_srt")
+def is_generate_subtitles(render_data):
+    return render_data.args.opts.data.get("deforum_save_gen_info_as_srt")
+
