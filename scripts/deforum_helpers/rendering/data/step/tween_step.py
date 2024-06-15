@@ -4,7 +4,6 @@ from typing import Any, Iterable
 
 from ...data.indexes import Indexes
 from ...data.step import Step
-from ...img_2_img_tubes import conditional_force_tween_to_grayscale_tube, conditional_add_overlay_mask_tube
 from ...util import image_utils, log_utils, web_ui_utils
 
 
@@ -39,15 +38,15 @@ class TweenStep:
         tween = TweenStep._calculate_tween_from_indices(from_index, to_index)
         return TweenStep(tween, None, None)
 
-    def generate_tween_image(self, init):
+    def generate_tween_image(self, data, grayscale_tube, overlay_mask_tube):
         is_tween = True
-        warped = init.turbo.do_optical_flow_cadence_after_animation_warping(init, self.indexes, self.last_step, self)
-        recolored = conditional_force_tween_to_grayscale_tube(init)(warped)
-        masked = conditional_add_overlay_mask_tube(init, is_tween)(recolored)
+        warped = data.turbo.do_optical_flow_cadence_after_animation_warping(data, self.indexes, self.last_step, self)
+        recolored = grayscale_tube(data)(warped)
+        masked = overlay_mask_tube(data, is_tween)(recolored)
         return masked
 
-    def generate(self, init):
-        return self.generate_tween_image(init)
+    def generate(self, data, grayscale_tube, overlay_mask_tube):
+        return self.generate_tween_image(data, grayscale_tube, overlay_mask_tube)
 
     def process(self, init):
         init.turbo.advance_optical_flow_cadence_before_animation_warping(init, self)
@@ -55,37 +54,40 @@ class TweenStep:
         init.turbo.advance(init, self.indexes.tween.i, self.last_step.depth)
         init.turbo.do_hybrid_video_motion(init, self.indexes, init.images)  # TODO remove self.indexes or init.indexes
 
-    def handle_synchronous_status_concerns(self, init):
-        self.last_step.write_frame_subtitle_if_active(init)  # TODO decouple from execution and calc all in advance?
-        log_utils.print_tween_frame_info(init, self.indexes, self.cadence_flow, self.tween)
-        web_ui_utils.update_progress_during_cadence(init, self.indexes)
+    def handle_synchronous_status_concerns(self, data):
+        self.last_step.write_frame_subtitle_if_active(data)  # TODO decouple from execution and calc all in advance?
+        log_utils.print_tween_frame_info(data, self.indexes, self.cadence_flow, self.tween)
+        web_ui_utils.update_progress_during_cadence(data, self.indexes)
 
     @staticmethod
-    def maybe_emit_in_between_frames(step: Step):
+    def maybe_emit_in_between_frames(step: Step, grayscale_tube, overlay_mask_tube):
         # TODO? return the new frames
-        data = step.render_data
-        if data.turbo.is_emit_in_between_frames():
-            tween_frame_start_i = max(data.indexes.frame.start, data.indexes.frame.i - data.turbo.steps)
-            TweenStep.emit_frames_between_index_pair(step, tween_frame_start_i, data.indexes.frame.i)
+        if step.render_data.turbo.is_emit_in_between_frames():
+            tween_frame_start_i = max(step.render_data.indexes.frame.start,
+                                      step.render_data.indexes.frame.i - step.render_data.turbo.steps)
+            return TweenStep.emit_frames_between_index_pair(step, tween_frame_start_i, step.render_data.indexes.frame.i,
+                                                            grayscale_tube, overlay_mask_tube)
+        return step
 
     @staticmethod
-    def emit_frames_between_index_pair(step: Step, tween_frame_start_i, frame_i):
+    def emit_frames_between_index_pair(step: Step, tween_frame_start_i, frame_i, grayscale_tube, overlay_mask_tube):
         """Emits tween frames (also known as turbo- or cadence-frames) between the provided indices."""
         tween_range = range(tween_frame_start_i, frame_i)
         tween_indexes_list: List[Indexes] = TweenStep.create_indexes(step.render_data.indexes, tween_range)
         tween_steps: List[TweenStep] = TweenStep.create_steps(step, tween_indexes_list)
         step.render_data.indexes.update_tween_start(step.render_data.turbo)
-        TweenStep.emit_tween_frames(step, tween_steps)
+        return TweenStep.emit_tween_frames(step, tween_steps, grayscale_tube, overlay_mask_tube)
 
     @staticmethod
-    def emit_tween_frames(step: Step, tween_steps):
+    def emit_tween_frames(step: Step, tween_steps, grayscale_tube, overlay_mask_tube):
         """Emits a tween frame for each provided tween_step."""
         for tween_step in tween_steps:
             tween_step.handle_synchronous_status_concerns(step.render_data)
             tween_step.process(step.render_data)  # side effects on turbo and on step
 
-            new_image = tween_step.generate(step.render_data)
+            new_image = tween_step.generate(step.render_data, grayscale_tube, overlay_mask_tube)
             # TODO pass step and depth instead of data and tween_step.indexes
             new_image = image_utils.save_and_return_frame(step.render_data, tween_step.indexes, new_image)
             # updating reference images to calculate hybrid motions in next iteration
             step.render_data.images.previous = new_image
+        return step

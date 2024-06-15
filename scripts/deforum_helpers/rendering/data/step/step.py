@@ -7,17 +7,20 @@ import numpy as np
 from ..render_data import RenderData
 from ..schedule import Schedule
 from ..turbo import Turbo
-from ...util import image_utils, memory_utils, opt_utils, web_ui_utils
+from ...util import memory_utils, opt_utils, web_ui_utils
 from ...util.call.anim import call_anim_frame_warp
+from ...util.call.gen import call_generate
 from ...util.call.hybrid import (
-    call_get_flow_for_hybrid_motion, call_get_flow_for_hybrid_motion_prev,
-    call_get_matrix_for_hybrid_motion,
+    call_get_flow_for_hybrid_motion, call_get_flow_for_hybrid_motion_prev, call_get_matrix_for_hybrid_motion,
     call_get_matrix_for_hybrid_motion_prev, call_hybrid_composite)
 from ...util.call.images import call_add_noise
 from ...util.call.mask import call_compose_mask_with_check, call_unsharp_mask
 from ...util.call.subtitle import call_format_animation_params, call_write_frame_subtitle
+from ...util.call.video_and_audio import call_render_preview
 from ...util.log_utils import print_animation_frame_info
 from ....hybrid_video import image_transform_ransac, image_transform_optical_flow
+from ....save_images import save_image
+from ....seed import next_seed
 
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
@@ -46,17 +49,18 @@ class StepData:
     @staticmethod
     def create(deform_keys, i):
         keys = deform_keys
-        return StepData(keys.noise_schedule_series[i],
-                        keys.strength_schedule_series[i],
-                        keys.cfg_scale_schedule_series[i],
-                        keys.contrast_schedule_series[i],
-                        int(keys.kernel_schedule_series[i]),
-                        keys.sigma_schedule_series[i],
-                        keys.amount_schedule_series[i],
-                        keys.threshold_schedule_series[i],
-                        keys.cadence_flow_factor_schedule_series[i],
-                        keys.redo_flow_factor_schedule_series[i],
-                        StepData._hybrid_comp_args(keys, i))
+        return StepData(
+            keys.noise_schedule_series[i],
+            keys.strength_schedule_series[i],
+            keys.cfg_scale_schedule_series[i],
+            keys.contrast_schedule_series[i],
+            int(keys.kernel_schedule_series[i]),
+            keys.sigma_schedule_series[i],
+            keys.amount_schedule_series[i],
+            keys.threshold_schedule_series[i],
+            keys.cadence_flow_factor_schedule_series[i],
+            keys.redo_flow_factor_schedule_series[i],
+            StepData._hybrid_comp_args(keys, i))
 
     @staticmethod
     def _hybrid_comp_args(keys, i):
@@ -77,6 +81,7 @@ class Step:
     depth: Any  # TODO try to init early, then freeze class
     subtitle_params_to_print: Any
     subtitle_params_string: str
+    last_preview_frame: int
 
     @staticmethod
     def do_start_and_create(data: RenderData):
@@ -88,7 +93,7 @@ class Step:
         step_data = StepData.create(data.animation_keys.deform_keys, data.indexes.frame.i)
         schedule = Schedule.create(data, data.indexes.frame.i,
                                    data.args.anim_args, data.args.args)
-        return Step(step_data, data, schedule, None, None, "")
+        return Step(step_data, data, schedule, None, None, "", 0)
 
     def is_optical_flow_redo_before_generation(self, optical_flow_redo_generation, images):
         has_flow_redo = optical_flow_redo_generation != 'None'
@@ -201,8 +206,8 @@ class Step:
         else:
             return image
 
-    @staticmethod
-    def create_color_match_for_video(data: RenderData):
+    def create_color_match_for_video(self):
+        data = self.render_data
         if data.args.anim_args.color_coherence == 'Video Input' and data.is_hybrid_available():
             if int(data.indexes.frame.i) % int(data.args.anim_args.color_coherence_video_every_N_frames) == 0:
                 prev_vid_img = Image.open(preview_video_image_path(data, data.indexes))
@@ -210,3 +215,106 @@ class Step:
                 data.images.color_match = np.asarray(prev_vid_img)
                 return cv2.cvtColor(data.images.color_match, cv2.COLOR_RGB2BGR)
         return None
+
+    def transform_and_update_noised_sample(self, frame_tube, contrasted_noise_tube):
+        data = self.render_data
+        if data.images.has_previous():  # skipping 1st iteration
+            transformed_image = frame_tube(data, self)(data.images.previous)
+            # TODO separate
+            noised_image = contrasted_noise_tube(data, self)(transformed_image)
+            data.update_sample_and_args_for_current_progression_step(self, noised_image)
+            return transformed_image
+        else:
+            return None
+
+    def prepare_generation(self, frame_tube, contrasted_noise_tube):
+        self.render_data.images.color_match = self.create_color_match_for_video()
+        self.render_data.images.previous = self.transform_and_update_noised_sample(frame_tube, contrasted_noise_tube)
+        self.render_data.prepare_generation(self.render_data, self)
+        self.maybe_redo_optical_flow()
+        self.maybe_redo_diffusion()
+
+    # Conditional Redoes
+    def maybe_redo_optical_flow(self):
+        data = self.render_data
+        optical_flow_redo_generation = data.optical_flow_redo_generation_if_not_in_preview_mode()
+        is_redo_optical_flow = self.is_optical_flow_redo_before_generation(optical_flow_redo_generation, data.images)
+        if is_redo_optical_flow:
+            data.args.root.init_sample = self.do_optical_flow_redo_before_generation()
+
+    def maybe_redo_diffusion(self):
+        data = self.render_data
+        is_pos_redo = data.has_positive_diffusion_redo
+        is_diffusion_redo = is_pos_redo and data.images.has_previous() and self.step_data.has_strength()
+        is_not_preview = data.is_not_in_motion_preview_mode()
+        if is_diffusion_redo and is_not_preview:
+            self.do_diffusion_redo()
+
+    def do_generation(self):
+        return call_generate(self.render_data, self)
+
+    def progress_and_save(self, image):
+        next_index = self._progress_save_and_get_next_index(image)
+        self.render_data.indexes.update_frame(next_index)
+
+    def _progress_save_and_get_next_index(self, image):
+        data = self.render_data
+        """Will progress frame or turbo-frame step, save the image, update `self.depth` and return next index."""
+        opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        if not data.animation_mode.has_video_input:
+            data.images.previous = opencv_image
+        if data.turbo.has_steps():
+            return data.indexes.frame.i + data.turbo.progress_step(data.indexes, opencv_image)
+        else:
+            filename = filename_utils.frame(data, data.indexes)
+            save_image(image, 'PIL', filename, data.args.args, data.args.video_args, data.args.root)
+            self.depth = generate_depth_maps_if_active(data)
+            return data.indexes.frame.i + 1  # normal (i.e. 'non-turbo') step always increments by 1.
+
+    def next_seed(self):
+        return next_seed(self.render_data.args.args, self.render_data.args.root)
+
+    def update_render_preview(self):
+        self.last_preview_frame = call_render_preview(self.render_data, self.last_preview_frame)
+
+    def generate_depth_maps_if_active(self):
+        data = self.render_data
+        # TODO move all depth related stuff to new class.
+        if data.args.anim_args.save_depth_maps:
+            memory_utils.handle_vram_before_depth_map_generation(data)
+            depth = data.depth_model.predict(opencv_image, data.args.anim_args.midas_weight,
+                                             data.args.root.half_precision)
+            depth_filename = filename_utils.depth_frame(data, idx)
+            data.depth_model.save(os.path.join(data.output_directory, depth_filename), depth)
+            memory_utils.handle_vram_after_depth_map_generation(data)
+            return depth
+
+    def do_optical_flow_redo_before_generation(self):
+        data = self.render_data
+        stored_seed = data.args.args.seed  # keep original to reset it after executing the optical flow
+        data.args.args.seed = generate_random_seed()  # set a new random seed
+        print_optical_flow_info(data, optical_flow_redo_generation)  # TODO output temp seed?
+
+        sample_image = call_generate(data, data.indexes.frame.i, self.schedule)
+        optical_tube = optical_flow_redo_tube(data, optical_flow_redo_generation)
+        transformed_sample_image = optical_tube(sample_image)
+
+        data.args.args.seed = stored_seed  # restore stored seed
+        return Image.fromarray(transformed_sample_image)
+
+    def do_diffusion_redo(self):
+        data = self.render_data
+        stored_seed = data.args.args.seed
+        last_diffusion_redo_index = int(data.args.anim_args.diffusion_redo)
+        for n in range(0, last_diffusion_redo_index):
+            print_redo_generation_info(data, n)
+            data.args.args.seed = generate_random_seed()
+            diffusion_redo_image = call_generate(data, self)
+            diffusion_redo_image = cv2.cvtColor(np.array(diffusion_redo_image), cv2.COLOR_RGB2BGR)
+            # color match on last one only
+            is_last_iteration = n == last_diffusion_redo_index
+            if is_last_iteration:
+                mode = data.args.anim_args.color_coherence
+                diffusion_redo_image = maintain_colors(data.images.previous, data.images.color_match, mode)
+            data.args.args.seed = stored_seed
+            data.args.root.init_sample = Image.fromarray(cv2.cvtColor(diffusion_redo_image, cv2.COLOR_BGR2RGB))
