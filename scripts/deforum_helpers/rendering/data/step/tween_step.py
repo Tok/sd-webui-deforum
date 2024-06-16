@@ -80,7 +80,8 @@ class TweenStep:
         if step.render_data.turbo.is_emit_in_between_frames():
             tween_frame_start_i = max(step.render_data.indexes.frame.start,
                                       step.render_data.indexes.frame.i - step.render_data.turbo.steps)
-            return TweenStep.emit_frames_between_index_pair(step, tween_frame_start_i, step.render_data.indexes.frame.i,
+            return TweenStep.emit_frames_between_index_pair(step, tween_frame_start_i,
+                                                            step.render_data.indexes.frame.i,
                                                             grayscale_tube, overlay_mask_tube)
         return step
 
@@ -91,6 +92,7 @@ class TweenStep:
         tween_indexes_list: List[Indexes] = TweenStep.create_indexes(step.render_data.indexes, tween_range)
         tween_steps: List[TweenStep] = TweenStep.create_steps(step, tween_indexes_list)
         step.render_data.indexes.update_tween_start(step.render_data.turbo)
+        log_utils.print_tween_frame_from_to_info(step.render_data.turbo.steps, tween_frame_start_i, frame_i)
         return TweenStep.emit_tween_frames(step, tween_steps, grayscale_tube, overlay_mask_tube)
 
     @staticmethod

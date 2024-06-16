@@ -1,5 +1,17 @@
-CYAN = "\033[36m"
+RED = "\033[31m"
+ORANGE = "\033[38;5;208m"
 YELLOW = "\033[33m"
+GREEN = "\033[32m"
+CYAN = "\033[36m"
+BLUE = "\033[34m"
+INDIGO = "\033[38;5;66m"
+VIOLET = "\033[38;5;130m"
+BLACK = "\033[30m"
+WHITE = "\033[37m"
+
+BOLD = "\033[1m"
+UNDERLINE = "\033[4m"
+
 RESET = "\033[0m"
 
 
@@ -7,10 +19,15 @@ def print_animation_frame_info(init):
     print(f"{CYAN}Animation frame: {RESET}{init.indexes.frame.i}/{init.args.anim_args.max_frames}")
 
 
-def print_tween_frame_info(init, indexes, cadence_flow, tween):
-    msg_flow_name = '' if cadence_flow is None else init.args.anim_args.optical_flow_cadence + ' optical flow '
-    msg_frame_info = f"cadence frame: {indexes.tween.i}; tween: {tween:0.2f};"
-    print(f"Creating in-between {msg_flow_name}{msg_frame_info}")
+def print_tween_frame_from_to_info(cadence, start_i, end_i):
+    if end_i > 0:
+        print(f"{ORANGE}Creating in-between: {RESET}{cadence} frames ({start_i}-->{end_i}).")
+
+def print_tween_frame_info(data, indexes, cadence_flow, tween, if_disable=True):
+    if not if_disable:
+        msg_flow_name = '' if cadence_flow is None else data.args.anim_args.optical_flow_cadence + ' optical flow '
+        msg_frame_info = f"cadence frame: {indexes.tween.i}; tween: {tween:0.2f};"
+        print(f"Creating in-between {msg_flow_name}{msg_frame_info}")
 
 
 def print_init_frame_info(init_frame):
