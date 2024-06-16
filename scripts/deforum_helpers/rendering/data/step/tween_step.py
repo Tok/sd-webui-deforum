@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from itertools import chain
-from typing import Any, Iterable
+from typing import Any, Iterable, Tuple
 
 from ...data.indexes import Indexes, IndexWithStart
 from ...data.step import Step
@@ -46,12 +46,12 @@ class TweenStep:
         return list(chain.from_iterable([Indexes.create_from_last(base_indexes, i)] for i in frame_range))
 
     @staticmethod
-    def create_steps(last_step, tween_indexes_list: list[Indexes]) -> list['TweenStep']:
+    def create_steps(last_step, tween_indexes_list: list[Indexes]) -> Tuple[list['TweenStep'], list[float]]:
         if len(tween_indexes_list) > 0:
             expected_tween_frames = TweenStep._calculate_expected_tween_frames(len(tween_indexes_list))
-            return TweenStep.create_steps_from_values(last_step, expected_tween_frames)
+            return TweenStep.create_steps_from_values(last_step, expected_tween_frames), expected_tween_frames
         else:
-            return list()
+            return list(), list()
 
     def generate_tween_image(self, data, grayscale_tube, overlay_mask_tube):
         is_tween = True
@@ -78,21 +78,21 @@ class TweenStep:
     def maybe_emit_in_between_frames(step: Step, grayscale_tube, overlay_mask_tube):
         # TODO? return the new frames
         if step.render_data.turbo.is_emit_in_between_frames():
-            tween_frame_start_i = max(step.render_data.indexes.frame.start,
-                                      step.render_data.indexes.frame.i - step.render_data.turbo.steps)
-            return TweenStep.emit_frames_between_index_pair(step, tween_frame_start_i,
-                                                            step.render_data.indexes.frame.i,
-                                                            grayscale_tube, overlay_mask_tube)
+            diff = step.render_data.indexes.frame.i - step.render_data.turbo.steps
+            tween_frame_start_i = max(step.render_data.indexes.frame.start, diff)
+            from_i = tween_frame_start_i
+            to_i = step.render_data.indexes.frame.i
+            return TweenStep.emit_frames_between_index_pair(step, from_i, to_i, grayscale_tube, overlay_mask_tube)
         return step
 
     @staticmethod
-    def emit_frames_between_index_pair(step: Step, tween_frame_start_i, frame_i, grayscale_tube, overlay_mask_tube):
+    def emit_frames_between_index_pair(step: Step, from_i, to_i, grayscale_tube, overlay_mask_tube):
         """Emits tween frames (also known as turbo- or cadence-frames) between the provided indices."""
-        tween_range = range(tween_frame_start_i, frame_i)
+        tween_range = range(from_i, to_i)
         tween_indexes_list: List[Indexes] = TweenStep.create_indexes(step.render_data.indexes, tween_range)
-        tween_steps: List[TweenStep] = TweenStep.create_steps(step, tween_indexes_list)
+        tween_steps, values = TweenStep.create_steps(step, tween_indexes_list)
         step.render_data.indexes.update_tween_start(step.render_data.turbo)
-        log_utils.print_tween_frame_from_to_info(step.render_data.turbo.steps, tween_frame_start_i, frame_i)
+        log_utils.print_tween_frame_from_to_info(step.render_data.turbo.steps, values, from_i, to_i)
         return TweenStep.emit_tween_frames(step, tween_steps, grayscale_tube, overlay_mask_tube)
 
     @staticmethod

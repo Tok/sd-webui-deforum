@@ -87,13 +87,24 @@ class Step:
     def do_start_and_create(data: RenderData):
         # Perform the necessary side effects
         memory_utils.handle_med_or_low_vram_before_step(data)
-        print_animation_frame_info(data)
         web_ui_utils.update_job(data)
         # Actual create
         step_data = StepData.create(data.animation_keys.deform_keys, data.indexes.frame.i)
         schedule = Schedule.create(data, data.indexes.frame.i,
                                    data.args.anim_args, data.args.args)
         return Step(step_data, data, schedule, None, None, "", 0)
+
+    @staticmethod
+    def create_all_steps(data):
+        """Creates a list of steps for the entire animation."""
+        steps = []
+        max_steps = int(data.args.anim_args.max_frames / data.cadence())
+        for step_index in range(max_steps):
+            step = Step.do_start_and_create(data)
+            step.maybe_write_frame_subtitle()
+            steps.append(step)
+        assert len(steps) == max_steps
+        return steps
 
     def is_optical_flow_redo_before_generation(self, optical_flow_redo_generation, images):
         has_flow_redo = optical_flow_redo_generation != 'None'

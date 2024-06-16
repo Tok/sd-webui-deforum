@@ -15,13 +15,17 @@ UNDERLINE = "\033[4m"
 RESET = "\033[0m"
 
 
+def print_tween_frame_from_to_info(cadence, tween_values, start_i, end_i):
+    if start_i > 0:
+        print("Deforum progress: 100%|")
+    if end_i > 0:
+        formatted_values = [f"{val:.2f}" for val in tween_values]
+        print(f"{ORANGE}Creating in-between: {RESET}{cadence} frames ({start_i}-->{end_i}){formatted_values}")
+
+
 def print_animation_frame_info(init):
     print(f"{CYAN}Animation frame: {RESET}{init.indexes.frame.i}/{init.args.anim_args.max_frames}")
 
-
-def print_tween_frame_from_to_info(cadence, start_i, end_i):
-    if end_i > 0:
-        print(f"{ORANGE}Creating in-between: {RESET}{cadence} frames ({start_i}-->{end_i}).")
 
 def print_tween_frame_info(data, indexes, cadence_flow, tween, if_disable=True):
     if not if_disable:
