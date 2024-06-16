@@ -5,7 +5,7 @@ import numpy as np
 from cv2.typing import MatLike
 
 from .data.render_data import RenderData
-from .data.step.step import Step
+from .data.step.key_step import KeyStep
 from .util.call.hybrid import call_get_flow_from_images, call_hybrid_composite
 from .util.fun_utils import tube
 from ..masks import do_overlay_mask
@@ -27,23 +27,23 @@ transformed_image = my_tube(arguments)(original_image)
 ImageTube = Callable[[MatLike], MatLike]
 
 
-def frame_transformation_tube(data: RenderData, step: Step) -> ImageTube:
+def frame_transformation_tube(data: RenderData, step: KeyStep) -> ImageTube:
     # make sure `img` stays the last argument in each call.
     return tube(lambda img: step.apply_frame_warp_transform(data, img),
                 lambda img: step.do_hybrid_compositing_before_motion(data, img),
-                lambda img: Step.apply_hybrid_motion_ransac_transform(data, img),
-                lambda img: Step.apply_hybrid_motion_optical_flow(data, img),
+                lambda img: KeyStep.apply_hybrid_motion_ransac_transform(data, img),
+                lambda img: KeyStep.apply_hybrid_motion_optical_flow(data, img),
                 lambda img: step.do_normal_hybrid_compositing_after_motion(data, img),
-                lambda img: Step.apply_color_matching(data, img),
-                lambda img: Step.transform_to_grayscale_if_active(data, img))
+                lambda img: KeyStep.apply_color_matching(data, img),
+                lambda img: KeyStep.transform_to_grayscale_if_active(data, img))
 
 
-def contrast_transformation_tube(data: RenderData, step: Step) -> ImageTube:
+def contrast_transformation_tube(data: RenderData, step: KeyStep) -> ImageTube:
     return tube(lambda img: step.apply_scaling(img),
                 lambda img: step.apply_anti_blur(data, img))
 
 
-def noise_transformation_tube(data: RenderData, step: Step) -> ImageTube:
+def noise_transformation_tube(data: RenderData, step: KeyStep) -> ImageTube:
     return tube(lambda img: step.apply_frame_noising(data, step, img))
 
 
@@ -56,7 +56,7 @@ def optical_flow_redo_tube(data: RenderData, optical_flow) -> ImageTube:
 
 
 # Conditional Tubes (can be switched on or off by providing a Callable[Boolean] `is_do_process` predicate).
-def conditional_hybrid_video_after_generation_tube(step: Step) -> ImageTube:
+def conditional_hybrid_video_after_generation_tube(step: KeyStep) -> ImageTube:
     data = step.render_data
     step_data = step.step_data
     return tube(lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
@@ -77,7 +77,7 @@ def conditional_extra_color_match_tube(data: RenderData) -> ImageTube:
                 lambda: data.indexes.is_first_frame() and data.is_initialize_color_match(data.images.color_match))
 
 
-def conditional_color_match_tube(step: Step) -> ImageTube:
+def conditional_color_match_tube(step: KeyStep) -> ImageTube:
     # on strength 0, set color match to generation
     return tube(lambda img: cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR),
                 is_do_process=lambda: step.render_data.is_do_color_match_conversion(step))
@@ -106,14 +106,14 @@ def conditional_force_tween_to_grayscale_tube(data: RenderData) -> ImageTube:
 
 
 # Composite Tubes, made from other Tubes.
-def contrasted_noise_transformation_tube(data: RenderData, step: Step) -> ImageTube:
+def contrasted_noise_transformation_tube(data: RenderData, step: KeyStep) -> ImageTube:
     """Combines contrast and noise transformation tubes."""
     contrast_tube: Tube = contrast_transformation_tube(data, step)
     noise_tube: Tube = noise_transformation_tube(data, step)
     return tube(lambda img: noise_tube(contrast_tube(img)))
 
 
-def conditional_frame_transformation_tube(step: Step, is_tween: bool = False) -> ImageTube:
+def conditional_frame_transformation_tube(step: KeyStep, is_tween: bool = False) -> ImageTube:
     hybrid_tube: Tube = conditional_hybrid_video_after_generation_tube(step)
     extra_tube: Tube = conditional_extra_color_match_tube(step.render_data)
     gray_tube: Tube = conditional_force_to_grayscale_tube(step.render_data)

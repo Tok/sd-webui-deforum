@@ -7,7 +7,7 @@ import numpy as np
 from ..render_data import RenderData
 from ..schedule import Schedule
 from ..turbo import Turbo
-from ...util import memory_utils, opt_utils, web_ui_utils
+from ...util import memory_utils, opt_utils
 from ...util.call.anim import call_anim_frame_warp
 from ...util.call.gen import call_generate
 from ...util.call.hybrid import (
@@ -17,14 +17,13 @@ from ...util.call.images import call_add_noise
 from ...util.call.mask import call_compose_mask_with_check, call_unsharp_mask
 from ...util.call.subtitle import call_format_animation_params, call_write_frame_subtitle
 from ...util.call.video_and_audio import call_render_preview
-from ...util.log_utils import print_animation_frame_info
 from ....hybrid_video import image_transform_ransac, image_transform_optical_flow
 from ....save_images import save_image
 from ....seed import next_seed
 
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
-class StepData:
+class KeyStepData:
     noise: Any = None
     strength: Any = None
     scale: Any = None
@@ -49,7 +48,7 @@ class StepData:
     @staticmethod
     def create(deform_keys, i):
         keys = deform_keys
-        return StepData(
+        return KeyStepData(
             keys.noise_schedule_series[i],
             keys.strength_schedule_series[i],
             keys.cfg_scale_schedule_series[i],
@@ -60,7 +59,7 @@ class StepData:
             keys.threshold_schedule_series[i],
             keys.cadence_flow_factor_schedule_series[i],
             keys.redo_flow_factor_schedule_series[i],
-            StepData._hybrid_comp_args(keys, i))
+            KeyStepData._hybrid_comp_args(keys, i))
 
     @staticmethod
     def _hybrid_comp_args(keys, i):
@@ -74,8 +73,9 @@ class StepData:
 
 
 @dataclass(init=True, frozen=False, repr=False, eq=False)
-class Step:
-    step_data: StepData
+class KeyStep:
+    """Key steps are the steps for frames that actually get diffused (as opposed to tween frame steps)."""
+    step_data: KeyStepData
     render_data: RenderData
     schedule: Schedule
     depth: Any  # TODO try to init early, then freeze class
@@ -84,16 +84,19 @@ class Step:
     last_preview_frame: int
 
     @staticmethod
-    def do_start_and_create(data: RenderData):
-        # Perform the necessary side effects
-        memory_utils.handle_med_or_low_vram_before_step(data)
-        print_animation_frame_info(data)
-        web_ui_utils.update_job(data)
-        # Actual create
-        step_data = StepData.create(data.animation_keys.deform_keys, data.indexes.frame.i)
+    def create(data: RenderData):
+        step_data = KeyStepData.create(data.animation_keys.deform_keys, data.indexes.frame.i)
         schedule = Schedule.create(data, data.indexes.frame.i,
                                    data.args.anim_args, data.args.args)
-        return Step(step_data, data, schedule, None, None, "", 0)
+        return KeyStep(step_data, data, schedule, None, None, "", 0)
+
+    @staticmethod
+    def create_all_steps(data):
+        """Creates a list of key steps for the entire animation."""
+        max_steps = int(data.args.anim_args.max_frames / data.cadence())
+        steps = [KeyStep.create(data) for _ in range(max_steps)]
+        assert len(steps) == max_steps
+        return steps
 
     def is_optical_flow_redo_before_generation(self, optical_flow_redo_generation, images):
         has_flow_redo = optical_flow_redo_generation != 'None'

@@ -17,7 +17,7 @@ class ImageFrame:
 # TODO freeze..
 @dataclass(frozen=False)
 class Turbo:
-    steps: int
+    steps: int  # cadence
     prev: ImageFrame
     next: ImageFrame
 
