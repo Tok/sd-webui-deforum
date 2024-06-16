@@ -34,7 +34,6 @@ def run_render_animation(data: RenderData):
     key_steps = KeyStep.create_all_steps(data)  # TODO precalculate and add `tweens: List[Tween]` to KeyStep
     for key_step in key_steps:
         memory_utils.handle_med_or_low_vram_before_step(data)
-        print_animation_frame_info(key_step.render_data)
         web_ui_utils.update_job(data)
 
         # TODO emit precalculated `key_step.tweens` if there are any
@@ -42,6 +41,7 @@ def run_render_animation(data: RenderData):
         overlay_mask_tube = img_2_img_tubes.conditional_add_overlay_mask_tube
         _ = Tween.maybe_emit_in_between_frames(key_step, grayscale_tube, overlay_mask_tube)
 
+        print_animation_frame_info(key_step.render_data)
         key_step.maybe_write_frame_subtitle()
 
         frame_tube = img_2_img_tubes.frame_transformation_tube

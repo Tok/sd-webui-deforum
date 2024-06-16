@@ -6,7 +6,6 @@ import numpy as np
 
 from ..render_data import RenderData
 from ..schedule import Schedule
-from ..turbo import Turbo
 from ...util import memory_utils, opt_utils
 from ...util.call.anim import call_anim_frame_warp
 from ...util.call.gen import call_generate
@@ -101,15 +100,6 @@ class KeyStep:
     def is_optical_flow_redo_before_generation(self, optical_flow_redo_generation, images):
         has_flow_redo = optical_flow_redo_generation != 'None'
         return has_flow_redo and images.has_previous() and self.step_data.has_strength()
-
-    def update_depth_prediction(self, data: RenderData, turbo: Turbo):
-        has_depth = data.depth_model is not None
-        has_next = turbo.next.image is not None
-        if has_depth and has_next:
-            image = turbo.next.image
-            weight = data.args.anim_args.midas_weight
-            precision = data.args.root.half_precision
-            self.depth = data.depth_model.predict(image, weight, precision)
 
     def maybe_write_frame_subtitle(self):
         data = self.render_data

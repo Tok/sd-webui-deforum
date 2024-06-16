@@ -3,17 +3,16 @@ from deforum_api import JobStatusTracker
 # noinspection PyUnresolvedReferences
 from modules.shared import state
 
-
 WEB_UI_SLEEP_DELAY = 0.1
 
 
-def init_job(init):
-    state.job_count = init.args.anim_args.max_frames
+def init_job(data):
+    state.job_count = data.args.anim_args.max_frames
 
 
-def update_job(init):
-    frame = init.indexes.frame.i + 1
-    max_frames = init.args.anim_args.max_frames
+def update_job(data):
+    frame = data.indexes.frame.i + 1
+    max_frames = data.args.anim_args.max_frames
     state.job = f"frame {frame}/{max_frames}"
     state.job_no = frame + 1
     if state.skipped:
@@ -24,11 +23,11 @@ def update_job(init):
         print("** RESUMING **")
 
 
-def update_status_tracker(init):
-    progress = init.indexes.frame.i / init.args.anim_args.max_frames
-    JobStatusTracker().update_phase(init.args.root.job_id, phase="GENERATING", progress=progress)
+def update_status_tracker(data):
+    progress = data.indexes.frame.i / data.args.anim_args.max_frames
+    JobStatusTracker().update_phase(data.args.root.job_id, phase="GENERATING", progress=progress)
 
 
-def update_progress_during_cadence(init, indexes):
-    state.job = f"frame {indexes.tween.i + 1}/{init.args.anim_args.max_frames}"
+def update_progress_during_cadence(data, indexes):
+    state.job = f"frame {indexes.tween.i + 1}/{data.args.anim_args.max_frames}"
     state.job_no = indexes.tween.i + 1
