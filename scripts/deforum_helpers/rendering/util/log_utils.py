@@ -49,3 +49,12 @@ def print_redo_generation_info(init, n):
 
 def print_warning_generate_returned_no_image():
     print(f"{YELLOW}Warning: {RESET}Generate returned no image. Skipping to next iteration.")
+
+
+def info(s: str):
+    print(f"Info: {s}")
+
+
+def debug(s: str):
+    eye_catcher = "###"
+    print(f"{YELLOW}{BOLD}{eye_catcher} Debug: {RESET}{s}")

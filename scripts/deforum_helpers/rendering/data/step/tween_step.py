@@ -12,12 +12,46 @@ from ...util.call.subtitle import call_format_animation_params, call_write_frame
 @dataclass(init=True, frozen=False, repr=False, eq=False)
 class Tween:
     """cadence vars"""
-    indexes: Indexes  # TODO? replace `Indexes` with like separate `index`, `from_key_step_i` and `to_key_step_i`
+    indexes: Indexes
     tween: float
     cadence_flow: Any  # late init
     cadence_flow_inc: Any  # late init
     depth: Any
     depth_prediction: Any
+
+    def i(self):
+        return self.indexes.tween.i
+
+    def from_key_step_i(self):
+        return self.indexes.frame.start
+
+    def to_key_step_i(self):
+        return self.indexes.frame.i
+
+    def emit_frame(self, last_step, grayscale_tube, overlay_mask_tube):
+        """Emits this tween frame."""
+        max_frames = last_step.render_data.args.anim_args.max_frames
+        if self.i() >= max_frames - 1:
+            return
+
+        # log_utils.debug(f"Emitting tween frame {self.i()} for step {last_step.i}")
+        data = last_step.render_data
+        self.handle_synchronous_status_concerns(data)
+        self.process(data)
+
+        new_image = self.generate(data, grayscale_tube, overlay_mask_tube)
+        # TODO pass step and depth instead of data and tween_step.indexes
+        new_image = image_utils.save_and_return_frame(data, self.i(), new_image)
+
+        # updating reference images to calculate hybrid motions in next iteration
+        data.images.previous = new_image  # FIXME
+
+    @staticmethod
+    def create_in_between_steps(last_step, data, from_i, to_i):
+        tween_range = range(from_i, to_i)
+        tween_indexes_list: List[Indexes] = Tween.create_indexes(data.indexes, tween_range)
+        tween_steps_and_values = Tween.create_steps(last_step, tween_indexes_list)
+        return tween_steps_and_values
 
     @staticmethod
     def _calculate_tween_from_indices(frame_difference, last_step) -> float:
@@ -56,21 +90,15 @@ class Tween:
         else:
             return list(), list()
 
-    def generate_tween_image(self, data, depth, grayscale_tube, overlay_mask_tube):
+    def generate_tween_image(self, data, grayscale_tube, overlay_mask_tube):
         is_tween = True
-        warped = data.turbo.do_optical_flow_cadence_after_animation_warping(data, depth, self.indexes, self)
+        warped = data.turbo.do_optical_flow_cadence_after_animation_warping(data, self.indexes, self)
         recolored = grayscale_tube(data)(warped)
         masked = overlay_mask_tube(data, is_tween)(recolored)
         return masked
 
-    def generate(self, data, depth, grayscale_tube, overlay_mask_tube):
-        return self.generate_tween_image(data, depth, grayscale_tube, overlay_mask_tube)
-
-    def process(self, data):
-        data.turbo.advance_optical_flow_cadence_before_animation_warping(data, self)
-        self.depth_prediction = Tween.calculate_depth_prediction(data, data.turbo)
-        data.turbo.advance(data, self.indexes.tween.i, self.depth)
-        data.turbo.do_hybrid_video_motion(data, self.indexes, data.images)  # TODO remove self.indexes or init.indexes
+    def generate(self, data, grayscale_tube, overlay_mask_tube):
+        return self.generate_tween_image(data, grayscale_tube, overlay_mask_tube)
 
     @staticmethod
     def calculate_depth_prediction(data, turbo: Turbo):
@@ -81,6 +109,12 @@ class Tween:
             weight = data.args.anim_args.midas_weight
             precision = data.args.root.half_precision
             return data.depth_model.predict(image, weight, precision)
+
+    def process(self, data):
+        data.turbo.advance_optical_flow_cadence_before_animation_warping(data, self)
+        self.depth_prediction = Tween.calculate_depth_prediction(data, data.turbo)
+        data.turbo.advance(data, self.indexes.tween.i, self.depth)
+        data.turbo.do_hybrid_video_motion(data, self.indexes, data.images)  # TODO remove self.indexes or init.indexes
 
     def handle_synchronous_status_concerns(self, data):
         self.write_tween_frame_subtitle_if_active(data)  # TODO decouple from execution and calc all in advance?

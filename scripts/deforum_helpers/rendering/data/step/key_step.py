@@ -1,12 +1,13 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, List
 
 import cv2
 import numpy as np
 
+from .tween_step import Tween
 from ..render_data import RenderData
 from ..schedule import Schedule
-from ...util import memory_utils, opt_utils
+from ...util import log_utils, memory_utils, opt_utils
 from ...util.call.anim import call_anim_frame_warp
 from ...util.call.gen import call_generate
 from ...util.call.hybrid import (
@@ -74,6 +75,7 @@ class KeyStepData:
 @dataclass(init=True, frozen=False, repr=False, eq=False)
 class KeyStep:
     """Key steps are the steps for frames that actually get diffused (as opposed to tween frame steps)."""
+    i: int
     step_data: KeyStepData
     render_data: RenderData
     schedule: Schedule
@@ -81,19 +83,21 @@ class KeyStep:
     subtitle_params_to_print: Any
     subtitle_params_string: str
     last_preview_frame: int
+    tweens: List[Tween]
+    tween_values: List[float]
 
     @staticmethod
     def create(data: RenderData):
         step_data = KeyStepData.create(data.animation_keys.deform_keys, data.indexes.frame.i)
-        schedule = Schedule.create(data, data.indexes.frame.i,
-                                   data.args.anim_args, data.args.args)
-        return KeyStep(step_data, data, schedule, None, None, "", 0)
+        schedule = Schedule.create(data, data.indexes.frame.i, data.args.anim_args, data.args.args)
+        return KeyStep(0, step_data, data, schedule, None, None, "", 0, list(), list())
 
     @staticmethod
-    def create_all_steps(data):
+    def create_all_steps(data, start_index):
         """Creates a list of key steps for the entire animation."""
-        max_steps = int(data.args.anim_args.max_frames / data.cadence())
-        steps = [KeyStep.create(data) for _ in range(max_steps)]
+        max_steps = 1 + int((data.args.anim_args.max_frames - start_index) / data.cadence())
+        steps = [KeyStep.create(data) for _ in range(0, max_steps)]
+        log_utils.info(f"Creating {len(steps)} KeySteps.")
         assert len(steps) == max_steps
         return steps
 
@@ -115,7 +119,7 @@ class KeyStep:
             call_write_frame_subtitle(data, self.indexes.tween.i, params_string, sub_step.tween < 1.0)
 
     def apply_frame_warp_transform(self, data: RenderData, image):
-        previous, self.depth = call_anim_frame_warp(data, data.indexes.frame.i, image, None)
+        previous, self.depth = call_anim_frame_warp(data, self.i, image, None)
         return previous
 
     def _do_hybrid_compositing_on_cond(self, data: RenderData, image, condition):

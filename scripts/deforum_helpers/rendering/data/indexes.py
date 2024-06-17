@@ -33,6 +33,12 @@ class Indexes:
         tween_start = max(self.frame.start, self.frame.i - turbo.steps)
         self.tween = IndexWithStart(tween_start, self.tween.i)
 
+    def update_tween_index(self, i):
+        self.tween = IndexWithStart(self.tween.start, i)
+
+    def update_tween_start_index(self, i):
+        self.tween = IndexWithStart(i, self.tween.start)
+
     def update_frame(self, i: int):
         self.frame = IndexWithStart(self.frame.start, i)
 

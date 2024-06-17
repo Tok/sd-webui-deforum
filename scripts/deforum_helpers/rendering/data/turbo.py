@@ -106,11 +106,11 @@ class Turbo:
             self.advance_optical_flow(tween_step)
             self.next.image = image_transform_optical_flow(self.next.image, -tween_step.cadence_flow)
 
-    def do_optical_flow_cadence_after_animation_warping(self, data, indexes, depth, tween_step):
+    def do_optical_flow_cadence_after_animation_warping(self, data, indexes, tween_step):
         if tween_step.cadence_flow is not None:
             # TODO Calculate all increments before running the generation (and try to avoid abs->rel->abc conversions).
             temp_flow = abs_flow_to_rel_flow(tween_step.cadence_flow, data.width(), data.height())
-            new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, temp_flow, depth)
+            new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, temp_flow, self.depth)
             tween_step.cadence_flow = new_flow
             abs_flow = rel_flow_to_abs_flow(tween_step.cadence_flow, data.width(), data.height())
             tween_step.cadence_flow_inc = abs_flow * tween_step.tween
