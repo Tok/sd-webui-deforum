@@ -183,7 +183,9 @@ class KeyStep:
             raise KeyError(f"KeyIndexDistribution {index_distribution} doesn't exist.")
 
         is_random = index_distribution in [KeyIndexDistribution.RANDOM_SPACING, KeyIndexDistribution.RANDOM_PLACEMENT]
-        return key_steps.sort(key=lambda ks: ks.i) if is_random else key_steps
+        if is_random:
+            key_steps.sort(key=lambda ks: ks.i)
+        return key_steps
 
     @staticmethod
     def _add_tweens_to_key_steps(key_steps):
