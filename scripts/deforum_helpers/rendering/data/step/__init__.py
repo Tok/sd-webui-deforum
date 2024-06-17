@@ -1,2 +1,2 @@
-from .key_step import KeyStepData, KeyStep
+from .key_step import KeyIndexDistribution, KeyStepData, KeyStep
 from .tween_step import Tween

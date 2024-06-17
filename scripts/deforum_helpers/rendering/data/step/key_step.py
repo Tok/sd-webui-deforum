@@ -1,4 +1,6 @@
+import random
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, List
 
 import cv2
@@ -72,6 +74,20 @@ class KeyStepData:
             "flow_factor": keys.hybrid_flow_factor_schedule_series[i]}
 
 
+class KeyIndexDistribution(Enum):
+    UNIFORM_SPACING = "Uniform Spacing"
+    RANDOM_SPACING = "Random Spacing"
+    RANDOM_PLACEMENT = "Random Placement"
+
+    @property
+    def name(self):
+        return self.value
+
+    @staticmethod
+    def default():
+        return KeyIndexDistribution.UNIFORM_SPACING
+
+
 @dataclass(init=True, frozen=False, repr=False, eq=False)
 class KeyStep:
     """Key steps are the steps for frames that actually get diffused (as opposed to tween frame steps)."""
@@ -93,13 +109,97 @@ class KeyStep:
         return KeyStep(0, step_data, data, schedule, None, None, "", 0, list(), list())
 
     @staticmethod
-    def create_all_steps(data, start_index):
+    def create_all_steps(data, start_index, index_dist: KeyIndexDistribution = KeyIndexDistribution.default()):
         """Creates a list of key steps for the entire animation."""
-        max_steps = 1 + int((data.args.anim_args.max_frames - start_index) / data.cadence())
-        steps = [KeyStep.create(data) for _ in range(0, max_steps)]
-        log_utils.info(f"Creating {len(steps)} KeySteps.")
-        assert len(steps) == max_steps
-        return steps
+        max_frames = data.args.anim_args.max_frames
+        max_steps = 1 + int((max_frames - start_index) / data.cadence())
+        log_utils.debug(f"max_steps {max_steps} max_frames {max_frames}")
+        key_steps = [KeyStep.create(data) for _ in range(0, max_steps)]
+        key_steps = KeyStep.recalculate_and_check_tweens(key_steps, start_index, max_frames, max_steps, index_dist)
+
+        # Print message  # TODO move to log_utils
+        tween_count = sum(len(key_step.tweens) for key_step in key_steps) - len(key_steps)
+        msg_start = f"Created {len(key_steps)} KeySteps with {tween_count} Tween frames."
+        msg_end = f"Key frame index distribution: '{index_dist.name}'."
+        log_utils.info(f"{msg_start} {msg_end}")
+        return key_steps
+
+    @staticmethod
+    def recalculate_and_check_tweens(key_steps, start_index, max_frames, max_steps, index_distribution):
+        key_steps = KeyStep._recalculate_and_index_key_steps(key_steps, start_index, max_frames, index_distribution)
+        key_steps = KeyStep._add_tweens_to_key_steps(key_steps)
+        assert len(key_steps) == max_steps
+
+        # FIXME seems to generate an unnecessary additional tween for value 1.0 (overwritten by actual frame?)
+        #log_utils.debug("tween count: " + str(sum(len(key_step.tweens) for key_step in key_steps)))
+        #expected_total_count = max_frames  # Total should be equal to max_frames
+        #actual_total_count = len(key_steps) + sum(len(key_step.tweens) for key_step in key_steps)
+        #log_utils.debug("total count: " + str(actual_total_count))
+        #assert actual_total_count == expected_total_count  # Check total matches expected
+
+        assert key_steps[0].i == 1
+        assert key_steps[-1].i == max_frames
+        return key_steps
+
+    @staticmethod
+    def _recalculate_and_index_key_steps(key_steps: List['KeyStep'], start_index, max_frames, index_distribution):
+        def calculate_uniform_indexes():
+            return [1 + start_index + int(n * (max_frames - 1 - start_index) / (len(key_steps) - 1))
+                    for n in range(len(key_steps))]
+
+        # TODO move logic into enum
+        if index_distribution == KeyIndexDistribution.UNIFORM_SPACING:
+            uniform_indexes = calculate_uniform_indexes()
+            for i, key_step in enumerate(key_steps):
+                key_step.i = uniform_indexes[i]
+        elif index_distribution == KeyIndexDistribution.RANDOM_SPACING:
+            uniform_indexes = calculate_uniform_indexes()
+            key_steps[0].i = start_index + 1  # Enforce first index
+            key_steps[-1].i = max_frames  # Enforce last index
+            total_spacing = 0  # Calculate initial average spacing
+            for i in range(1, len(key_steps)):
+                total_spacing += key_steps[i].i - key_steps[i - 1].i
+            average_spacing = total_spacing / (len(key_steps) - 1)  # Avoid division by zero
+            # Noise factor to control randomness (adjust as needed)
+            noise_factor = 0.5  # Higher value creates more variation
+            log_utils.debug(f"average_spacing {average_spacing}")
+            for i, key_step in enumerate(key_steps):
+                if i == 0 or i == len(key_steps) - 1:
+                    continue  # Skip first and last (already set)
+                base_index = uniform_indexes[i]
+                noise = random.uniform(-noise_factor, noise_factor) * average_spacing
+                log_utils.debug(f"base_index {base_index} noise {noise} i {int(base_index + noise)}")
+                key_step.i = int(base_index + noise)  # Apply base index and noise
+                # Ensure index stays within frame bounds
+                key_step.i = max(start_index, min(key_step.i, max_frames - 1))
+        elif index_distribution == KeyIndexDistribution.RANDOM_PLACEMENT:
+            key_steps[0].i = start_index + 1  # Enforce first index
+            key_steps[-1].i = max_frames  # Enforce last index
+            # Randomly distribute indices for remaining keyframes
+            for i in range(1, len(key_steps) - 1):
+                key_step = key_steps[i]
+                key_step.i = random.randint(start_index + 1, max_frames - 2)
+        else:
+            raise KeyError(f"KeyIndexDistribution {index_distribution} doesn't exist.")
+
+        is_random = index_distribution in [KeyIndexDistribution.RANDOM_SPACING, KeyIndexDistribution.RANDOM_PLACEMENT]
+        return key_steps.sort(key=lambda ks: ks.i) if is_random else key_steps
+
+    @staticmethod
+    def _add_tweens_to_key_steps(key_steps):
+        for i in range(1, len(key_steps)):  # skipping 1st key frame
+            data = key_steps[i].render_data
+            if data.turbo.is_emit_in_between_frames():
+                from_i = key_steps[i-1].i
+                to_i = key_steps[i].i
+                tweens, values = Tween.create_in_between_steps(key_steps[i], data, from_i, to_i)
+                for tween in tweens:  # TODO move to creation
+                    tween.indexes.update_tween_index(tween.i() + key_steps[i].i)
+                log_utils.info(f"Creating {len(tweens)} tween steps ({from_i}->{to_i}) for key step {key_steps[i].i}")
+                key_steps[i].tweens = tweens
+                key_steps[i].tween_values = values
+                key_steps[i].render_data.indexes.update_tween_start(data.turbo)
+        return key_steps
 
     def is_optical_flow_redo_before_generation(self, optical_flow_redo_generation, images):
         has_flow_redo = optical_flow_redo_generation != 'None'
@@ -177,7 +277,7 @@ class KeyStep:
 
     @staticmethod
     def apply_hybrid_motion_ransac_transform(data: RenderData, image):
-        """hybrid video motion - warps images.previous to match motion, usually to prepare for compositing"""
+        """hybrid video motion - warps `images.previous` to match motion, usually to prepare for compositing"""
         motion = data.args.anim_args.hybrid_motion
         if motion in ['Affine', 'Perspective']:
             last_i = data.indexes.frame.i - 1
@@ -292,7 +392,7 @@ class KeyStep:
         data.args.args.seed = generate_random_seed()  # set a new random seed
         print_optical_flow_info(data, optical_flow_redo_generation)  # TODO output temp seed?
 
-        sample_image = call_generate(data, data.indexes.frame.i, self.schedule)
+        sample_image = call_generate(data, data.indexes.frame.i)
         optical_tube = optical_flow_redo_tube(data, optical_flow_redo_generation)
         transformed_sample_image = optical_tube(sample_image)
 

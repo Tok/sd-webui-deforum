@@ -19,9 +19,8 @@ from modules.shared import opts, state
 
 from .rendering import img_2_img_tubes
 from .rendering.data.render_data import RenderData
-from .rendering.data.step import KeyStep, Tween
+from .rendering.data.step import KeyIndexDistribution, KeyStep
 from .rendering.util import log_utils, memory_utils, web_ui_utils
-from .rendering.util.log_utils import print_animation_frame_info, print_warning_generate_returned_no_image
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
@@ -34,34 +33,14 @@ def run_render_animation(data: RenderData):
     start_index = data.turbo.find_start(data)
     max_frames = data.args.anim_args.max_frames
 
-    # create all key steps
-    key_steps = KeyStep.create_all_steps(data, start_index)
-    for i, key_step in enumerate(key_steps):
-        if i == 0:
-            continue
-        # reindex key steps  # TODO calculate correct index right away.
-        key_step_index = 1 + start_index + int(i * (max_frames - 1 - start_index) / (len(key_steps) - 1))
-        key_step.i = min(key_step_index, max_frames)
-        # add tweens to key steps
-        if data.turbo.is_emit_in_between_frames() and key_step.i > 0:
-            from_i = key_steps[i - 1].i  # TODO? +1
-            to_i = key_step.i  # TODO? -1
-            tweens, values = Tween.create_in_between_steps(key_step, data, from_i, to_i)
-            log_utils.info(f"Creating {len(tweens)} tween steps ({from_i}->{to_i}) for key step {key_step.i}")
-            for tween in tweens:
-                tween.indexes.update_tween_index(tween.i() + key_step.i)
-            key_step.tweens = tweens
-            key_step.tween_values = values
-            key_step.render_data.indexes.update_tween_start(data.turbo)
-
-    # process key steps and their tweens
+    key_steps = KeyStep.create_all_steps(data, start_index, KeyIndexDistribution.UNIFORM_SPACING)
     for key_step in key_steps:
         memory_utils.handle_med_or_low_vram_before_step(data)
         web_ui_utils.update_job(data)
 
         is_step_having_tweens = len(key_step.tweens) > 0
         if is_step_having_tweens:
-            # print tween frame info
+            # print tween frame info  # TODO move to log_utils
             turbo_steps = key_step.render_data.turbo.steps
             tween_values = key_step.tween_values
             from_i = key_step.tweens[0].i()
@@ -72,7 +51,7 @@ def run_render_animation(data: RenderData):
             overlay_mask_tube = img_2_img_tubes.conditional_add_overlay_mask_tube
             [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube) for tween in key_step.tweens]
 
-        print_animation_frame_info(key_step.render_data)
+        log_utils.print_animation_frame_info(key_step.render_data)
         key_step.maybe_write_frame_subtitle()
 
         is_not_last_frame = key_step.i < max_frames
@@ -82,7 +61,7 @@ def run_render_animation(data: RenderData):
             key_step.prepare_generation(frame_tube, contrasted_noise_tube)
             image = key_step.do_generation()
             if image is None:
-                print_warning_generate_returned_no_image()
+                log_utils.print_warning_generate_returned_no_image()
                 break
 
             image = img_2_img_tubes.conditional_frame_transformation_tube(key_step)(image)

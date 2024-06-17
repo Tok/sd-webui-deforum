@@ -342,7 +342,7 @@ class RenderData:
 
     @staticmethod
     def expand_prompts_out_to_per_frame(anim_args, root):
-        prompt_series = pd.Series([np.nan for a in range(anim_args.max_frames)])
+        prompt_series = pd.Series([np.nan for _ in range(anim_args.max_frames)])
         for i, prompt in root.animation_prompts.items():
             if str(i).isdigit():
                 prompt_series[int(i)] = prompt
