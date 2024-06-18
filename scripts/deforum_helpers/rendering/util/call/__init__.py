@@ -12,13 +12,13 @@ This module provides utility functions for simplifying calls to other modules wi
   often just formatting or passing arguments, and directly call the corresponding method.
 - **Naming Convention:**
     - Function names begin with "call_", followed by the name of the actual method to call.
-    - The `init` object is always passed as the first argument.
+    - The `data` object is always passed as the first argument.
     - Frame indices (e.g., `frame_idx`, `twin_frame_idx`) are passed as the second argument "i", when relevant.
 
 **Example:**
 ```python
 # Example function in this module
-def call_some_function(init, i, ...):
-    return some_module.some_function(init.arg77, init.arg.arg.whatever, i, ...)
+def call_some_function(data, i, ...):
+    return some_module.some_function(data.arg77, data.arg.arg.whatever, i, ...)
 ```
 """

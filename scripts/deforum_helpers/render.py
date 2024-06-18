@@ -51,7 +51,7 @@ def run_render_animation(data: RenderData):
             overlay_mask_tube = img_2_img_tubes.conditional_add_overlay_mask_tube
             [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube) for tween in key_step.tweens]
 
-        log_utils.print_animation_frame_info(key_step.render_data)
+        log_utils.print_animation_frame_info(key_step.i, max_frames)
         key_step.maybe_write_frame_subtitle()
 
         is_not_last_frame = key_step.i < max_frames
