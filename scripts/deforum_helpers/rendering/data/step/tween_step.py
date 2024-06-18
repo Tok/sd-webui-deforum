@@ -34,12 +34,11 @@ class Tween:
         if self.i() >= max_frames - 1:
             return
 
-        # log_utils.debug(f"Emitting tween frame {self.i()} for step {last_step.i}")
         data = last_step.render_data
         self.handle_synchronous_status_concerns(data)
         self.process(data)
 
-        new_image = self.generate(data, grayscale_tube, overlay_mask_tube)
+        new_image = self.generate_tween_image(data, grayscale_tube, overlay_mask_tube)
         # TODO pass step and depth instead of data and tween_step.indexes
         new_image = image_utils.save_and_return_frame(data, self.i(), new_image)
 
@@ -52,10 +51,6 @@ class Tween:
         tween_indexes_list: List[Indexes] = Tween.create_indexes(data.indexes, tween_range)
         tween_steps_and_values = Tween.create_steps(last_step, tween_indexes_list)
         return tween_steps_and_values
-
-    @staticmethod
-    def _calculate_tween_from_indices(frame_difference, last_step) -> float:
-        return min(0.0, max(1.0, float(last_step) / float(frame_difference)))
 
     @staticmethod
     def _calculate_expected_tween_frames(num_entries):
@@ -97,9 +92,6 @@ class Tween:
         masked = overlay_mask_tube(data, is_tween)(recolored)
         return masked
 
-    def generate(self, data, grayscale_tube, overlay_mask_tube):
-        return self.generate_tween_image(data, grayscale_tube, overlay_mask_tube)
-
     @staticmethod
     def calculate_depth_prediction(data, turbo: Turbo):
         has_depth = data.depth_model is not None
@@ -126,38 +118,3 @@ class Tween:
             params_to_print = opt_utils.generation_info_for_subtitles(data)
             params_string = call_format_animation_params(data, self.indexes.tween.i, params_to_print)
             call_write_frame_subtitle(data, self.indexes.tween.i, params_string, sub_step.tween < 1.0)
-
-    @staticmethod
-    def maybe_emit_in_between_frames(last_step, grayscale_tube, overlay_mask_tube):
-        # TODO? return the new frames
-        if last_step.render_data.turbo.is_emit_in_between_frames():
-            diff = last_step.render_data.indexes.frame.i - last_step.render_data.turbo.steps
-            tween_frame_start_i = max(last_step.render_data.indexes.frame.start, diff)
-            from_i = tween_frame_start_i
-            to_i = last_step.render_data.indexes.frame.i
-            return Tween.emit_frames_between_index_pair(last_step, from_i, to_i, grayscale_tube, overlay_mask_tube)
-        return last_step
-
-    @staticmethod
-    def emit_frames_between_index_pair(last_step, from_i, to_i, grayscale_tube, overlay_mask_tube):
-        """Emits tween frames (also known as turbo- or cadence-frames) between the provided indices."""
-        tween_range = range(from_i, to_i)
-        tween_indexes_list: List[Indexes] = Tween.create_indexes(last_step.render_data.indexes, tween_range)
-        tween_steps, values = Tween.create_steps(last_step, tween_indexes_list)
-        last_step.render_data.indexes.update_tween_start(last_step.render_data.turbo)
-        log_utils.print_tween_frame_from_to_info(last_step.render_data.turbo.steps, values, from_i, to_i)
-        return Tween.emit_tween_frames(last_step, tween_steps, grayscale_tube, overlay_mask_tube)
-
-    @staticmethod
-    def emit_tween_frames(last_step, tween_steps, grayscale_tube, overlay_mask_tube):
-        """Emits a tween frame for each provided tween_step."""
-        for tween_step in tween_steps:
-            tween_step.handle_synchronous_status_concerns(last_step.render_data)
-            tween_step.process(last_step.render_data)  # side effects on turbo and on step
-            new_image = tween_step.generate(last_step.render_data, last_step.depth, grayscale_tube, overlay_mask_tube)
-            # TODO pass step and depth instead of data and tween_step.indexes
-            i = tween_step.indexes.tween.i
-            new_image = image_utils.save_and_return_frame(last_step.render_data, i, new_image)
-            # updating reference images to calculate hybrid motions in next iteration
-            last_step.render_data.images.previous = new_image
-        return last_step

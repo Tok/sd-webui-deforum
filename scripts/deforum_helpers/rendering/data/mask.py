@@ -20,20 +20,6 @@ class Mask:
         return self.image is not None
 
     @staticmethod
-    def assign_masks(init, i, is_mask_image, dicts):
-        # Grab the first frame masks since they wont be provided until next frame
-        # Video mask overrides the init image mask, also, won't be searching for init_mask if use_mask_video is set
-        # Made to solve https://github.com/deforum-art/deforum-for-automatic1111-webui/issues/386
-        key = 'video_mask'
-        if init.args.anim_args.use_mask_video:
-            mask = call_get_mask_from_file(init, i, True)
-            init.args.args.mask_file = mask
-            init.args.root.noise_mask = mask
-            put_all(dicts, key, mask)
-        elif is_mask_image is None and init.is_use_mask:
-            put_all(dicts, key, get_mask(init.args.args))  # TODO?: add a different default noisc mask
-
-    @staticmethod
     def _create_vals(count, dimensions):
         return list(map(lambda _: {'everywhere': create_img(dimensions)}, range(count)))
 
