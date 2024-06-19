@@ -204,16 +204,14 @@ class RenderData:
         self.args.root.init_sample = Image.fromarray(cv2.cvtColor(noised_image, cv2.COLOR_BGR2RGB))
         self.args.args.strength = max(0.0, min(1.0, step.step_data.strength))
 
-    def update_some_args_for_current_step(self, indexes, step):
-        i = indexes.frame.i
+    def update_some_args_for_current_step(self, step, i):
         keys = self.animation_keys.deform_keys
         # Pix2Pix Image CFG Scale - does *nothing* with non pix2pix checkpoints
         self.args.args.pix2pix_img_cfg_scale = float(keys.pix2pix_img_cfg_scale_series[i])
         self.args.args.prompt = self.prompt_series[i]  # grab prompt for current frame
         self.args.args.scale = step.step_data.scale
 
-    def update_seed_and_checkpoint_for_current_step(self, indexes):
-        i = indexes.frame.i
+    def update_seed_and_checkpoint_for_current_step(self, i):
         keys = self.animation_keys.deform_keys
         is_seed_scheduled = self.args.args.seed_behavior == 'schedule'
         is_seed_managed = self.parseq_adapter.manages_seed()
@@ -223,8 +221,7 @@ class RenderData:
         self.args.args.checkpoint = keys.checkpoint_schedule_series[i] \
             if self.args.anim_args.enable_checkpoint_scheduling else None
 
-    def update_sub_seed_schedule_for_current_step(self, indexes):
-        i = indexes.frame.i
+    def update_sub_seed_schedule_for_current_step(self, i):
         keys = self.animation_keys.deform_keys
         is_subseed_scheduling_enabled = self.args.anim_args.enable_subseed_scheduling
         is_seed_managed_by_parseq = self.parseq_adapter.manages_seed()
@@ -236,12 +233,11 @@ class RenderData:
             self.args.root.subseed_strength = keys.subseed_strength_schedule_series[i]
             self.args.anim_args.enable_subseed_scheduling = True  # TODO should be enforced in init, not here.
 
-    def prompt_for_current_step(self, indexes):
+    def prompt_for_current_step(self, i):
         """returns value to be set back into the prompt"""
         prompt = self.args.args.prompt
         max_frames = self.args.anim_args.max_frames
         seed = self.args.args.seed
-        i = indexes.frame.i
         return prepare_prompt(prompt, max_frames, seed, i)
 
     def _update_video_input_for_current_frame(self, i, step):
@@ -261,8 +257,7 @@ class RenderData:
         self.args.root.noise_mask = new_mask
         mask.vals['video_mask'] = new_mask
 
-    def update_video_data_for_current_frame(self, indexes, step):
-        i = indexes.frame.i
+    def update_video_data_for_current_frame(self, i, step):
         if self.animation_mode.has_video_input:
             self._update_video_input_for_current_frame(i, step)
         if self.args.anim_args.use_mask_video:
@@ -274,22 +269,24 @@ class RenderData:
             has_sample = self.args.root.init_sample is not None
             if has_sample:
                 mask_seq = step.schedule.mask_seq
-                sample = init.args.root.init_sample
+                sample = self.args.root.init_sample
                 self.args.args.mask_image = call_compose_mask_with_check(self, mask_seq, mask.vals, sample)
             else:
                 self.args.args.mask_image = None  # we need it only after the first frame anyway
 
-    def prepare_generation(self, init, step):
+    def prepare_generation(self, data, step, i):
         # TODO move all of this to Step?
-        self.update_some_args_for_current_step(init.indexes, step)
-        self.update_seed_and_checkpoint_for_current_step(init.indexes)
-        self.update_sub_seed_schedule_for_current_step(init.indexes)
-        self.prompt_for_current_step(init.indexes)
-        self.update_video_data_for_current_frame(init.indexes, step)
-        self.update_mask_image(step, init.mask)
-        self.animation_keys.update(init.indexes.frame.i)
+        if i > self.args.anim_args.max_frames - 1:
+            return  # FIXME? sus
+        self.update_some_args_for_current_step(step, i)
+        self.update_seed_and_checkpoint_for_current_step(i)
+        self.update_sub_seed_schedule_for_current_step(i)
+        self.prompt_for_current_step(i)
+        self.update_video_data_for_current_frame(i, step)
+        self.update_mask_image(step, data.mask)
+        self.animation_keys.update(i)
         opt_utils.setup(self, step.schedule)
-        memory_utils.handle_vram_if_depth_is_predicted(init)
+        memory_utils.handle_vram_if_depth_is_predicted(data)
 
     @staticmethod
     def create_output_directory_for_the_batch(directory):

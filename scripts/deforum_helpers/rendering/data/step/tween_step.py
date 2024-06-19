@@ -31,12 +31,12 @@ class Tween:
     def emit_frame(self, last_step, grayscale_tube, overlay_mask_tube):
         """Emits this tween frame."""
         max_frames = last_step.render_data.args.anim_args.max_frames
-        if self.i() >= max_frames - 1:
-            return
+        if self.i() >= max_frames:
+            return  # skipping tween emission on the last frame
 
         data = last_step.render_data
         self.handle_synchronous_status_concerns(data)
-        self.process(data)
+        self.process(last_step, data)
 
         new_image = self.generate_tween_image(data, grayscale_tube, overlay_mask_tube)
         # TODO pass step and depth instead of data and tween_step.indexes
@@ -102,11 +102,11 @@ class Tween:
             precision = data.args.root.half_precision
             return data.depth_model.predict(image, weight, precision)
 
-    def process(self, data):
+    def process(self, last_step, data):
         data.turbo.advance_optical_flow_cadence_before_animation_warping(data, self)
         self.depth_prediction = Tween.calculate_depth_prediction(data, data.turbo)
         data.turbo.advance(data, self.indexes.tween.i, self.depth)
-        data.turbo.do_hybrid_video_motion(data, self.indexes, data.images)  # TODO remove self.indexes or init.indexes
+        data.turbo.do_hybrid_video_motion(data, self.indexes, data.images)  # FIXME? remove self.indexes or init.indexes
 
     def handle_synchronous_status_concerns(self, data):
         self.write_tween_frame_subtitle_if_active(data)  # TODO decouple from execution and calc all in advance?

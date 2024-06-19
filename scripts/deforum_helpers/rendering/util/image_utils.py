@@ -7,10 +7,11 @@ from . import filename_utils
 from ..data.render_data import RenderData
 
 
-def save_cadence_frame(data: RenderData, i: int, image: MatLike):
+def save_cadence_frame(data: RenderData, i: int, image: MatLike, is_overwrite: bool = True):
     filename = filename_utils.frame_filename(data, i)
     save_path: str = os.path.join(data.args.args.outdir, filename)
-    cv2.imwrite(save_path, image)
+    if is_overwrite or not os.path.exists(save_path):
+        cv2.imwrite(save_path, image)
 
 
 def save_cadence_frame_and_depth_map_if_active(data: RenderData, i, image):
