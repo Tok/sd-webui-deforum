@@ -49,27 +49,28 @@ def run_render_animation(data: RenderData):
             # emit tweens
             grayscale_tube = img_2_img_tubes.conditional_force_tween_to_grayscale_tube
             overlay_mask_tube = img_2_img_tubes.conditional_add_overlay_mask_tube
-            [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube) for tween in key_step.tweens]
+            [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube)
+             for tween in key_step.tweens]
 
         log_utils.print_animation_frame_info(key_step.i, max_frames)
         key_step.maybe_write_frame_subtitle()
 
-        is_not_last_frame = key_step.i < max_frames
-        if is_not_last_frame:
-            frame_tube = img_2_img_tubes.frame_transformation_tube
-            contrasted_noise_tube = img_2_img_tubes.contrasted_noise_transformation_tube
-            key_step.prepare_generation(frame_tube, contrasted_noise_tube)
-            image = key_step.do_generation()
-            if image is None:
-                log_utils.print_warning_generate_returned_no_image()
-                break
+        frame_tube = img_2_img_tubes.frame_transformation_tube
+        contrasted_noise_tube = img_2_img_tubes.contrasted_noise_transformation_tube
+        key_step.prepare_generation(frame_tube, contrasted_noise_tube)
 
-            image = img_2_img_tubes.conditional_frame_transformation_tube(key_step)(image)
-            key_step.render_data.images.color_match = img_2_img_tubes.conditional_color_match_tube(key_step)(image)
+        image = key_step.do_generation()  # FIXME supress or fix inaccurate info to `print_combined_table`
+        if image is None:
+            log_utils.print_warning_generate_returned_no_image()
+            break
 
-            key_step.progress_and_save(image)
-            state.assign_current_image(image)
-            key_step.render_data.args.args.seed = key_step.next_seed()
+        image = img_2_img_tubes.conditional_frame_transformation_tube(key_step)(image)
+        key_step.render_data.images.color_match = img_2_img_tubes.conditional_color_match_tube(key_step)(image)
+
+        key_step.progress_and_save(image)
+        state.assign_current_image(image)
+
+        key_step.render_data.args.args.seed = key_step.next_seed()
 
         key_step.update_render_preview()
         web_ui_utils.update_status_tracker(key_step.render_data)

@@ -29,19 +29,19 @@ def frame_filename(data: RenderData, i: int, is_depth=False, file_format=FileFor
 
 
 def frame(data: RenderData, indexes: Indexes) -> str:
-    return _frame_filename(data, indexes.frame.i)
+    return frame_filename(data, indexes.frame.i)
 
 
 def depth_frame(data: RenderData, indexes: Indexes) -> str:
-    return _frame_filename(data, indexes.frame.i, True)
+    return frame_filename(data, indexes.frame.i, True)
 
 
 def tween_frame_name(data: RenderData, indexes: Indexes) -> str:
-    return _frame_filename(data, indexes.tween.i)
+    return frame_filename(data, indexes.tween.i)
 
 
 def tween_depth_frame(data: RenderData, indexes: Indexes) -> str:
-    return _frame_filename(data, indexes.tween.i, True)
+    return frame_filename(data, indexes.tween.i, True)
 
 
 def preview_video_image_path(data: RenderData, indexes: Indexes) -> Path:

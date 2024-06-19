@@ -1,3 +1,4 @@
+import os
 import random
 from dataclasses import dataclass
 from enum import Enum
@@ -9,7 +10,7 @@ import numpy as np
 from .tween_step import Tween
 from ..render_data import RenderData
 from ..schedule import Schedule
-from ...util import log_utils, memory_utils, opt_utils
+from ...util import filename_utils, log_utils, memory_utils, opt_utils
 from ...util.call.anim import call_anim_frame_warp
 from ...util.call.gen import call_generate
 from ...util.call.hybrid import (
@@ -112,30 +113,32 @@ class KeyStep:
     def create_all_steps(data, start_index, index_dist: KeyIndexDistribution = KeyIndexDistribution.default()):
         """Creates a list of key steps for the entire animation."""
         max_frames = data.args.anim_args.max_frames
-        max_steps = 1 + int((max_frames - start_index) / data.cadence())
-        log_utils.debug(f"max_steps {max_steps} max_frames {max_frames}")
-        key_steps = [KeyStep.create(data) for _ in range(0, max_steps)]
-        key_steps = KeyStep.recalculate_and_check_tweens(key_steps, start_index, max_frames, max_steps, index_dist)
+        num_key_steps = 1 + int((max_frames - start_index) / data.cadence())
+        key_steps = [KeyStep.create(data) for _ in range(0, num_key_steps)]
+        key_steps = KeyStep.recalculate_and_check_tweens(key_steps, start_index, max_frames, num_key_steps, index_dist)
 
         # Print message  # TODO move to log_utils
-        tween_count = sum(len(key_step.tweens) for key_step in key_steps) - len(key_steps)
+        tween_count = sum(len(ks.tweens) for ks in key_steps)
         msg_start = f"Created {len(key_steps)} KeySteps with {tween_count} Tween frames."
         msg_end = f"Key frame index distribution: '{index_dist.name}'."
         log_utils.info(f"{msg_start} {msg_end}")
         return key_steps
 
     @staticmethod
-    def recalculate_and_check_tweens(key_steps, start_index, max_frames, max_steps, index_distribution):
+    def recalculate_and_check_tweens(key_steps, start_index, max_frames, num_key_steps, index_distribution):
         key_steps = KeyStep._recalculate_and_index_key_steps(key_steps, start_index, max_frames, index_distribution)
         key_steps = KeyStep._add_tweens_to_key_steps(key_steps)
-        assert len(key_steps) == max_steps
+        assert len(key_steps) == num_key_steps
 
-        # FIXME seems to generate an unnecessary additional tween for value 1.0 (overwritten by actual frame?)
-        #log_utils.debug("tween count: " + str(sum(len(key_step.tweens) for key_step in key_steps)))
-        #expected_total_count = max_frames  # Total should be equal to max_frames
-        #actual_total_count = len(key_steps) + sum(len(key_step.tweens) for key_step in key_steps)
-        #log_utils.debug("total count: " + str(actual_total_count))
-        #assert actual_total_count == expected_total_count  # Check total matches expected
+        # The number of generated tweens depends on index since last key-frame. The last tween has the same
+        # me index as the key_step it belongs to and is meant to replace the unprocessed original key frame.
+        total_count = len(key_steps) + sum(len(key_step.tweens) for key_step in key_steps)
+        assert total_count == max_frames + len(key_steps) - 1  # every key frame except the 1st has a tween double.
+        assert key_steps[0].tweens == []  # 1st key step has no tweens
+
+        for i, ks in enumerate(key_steps):
+            tween_indices = [t.i() for t in ks.tweens]
+            log_utils.debug(f"Key step {i} at {ks.i}: {len(tween_indices)} tween indices: {tween_indices}")
 
         assert key_steps[0].i == 1
         assert key_steps[-1].i == max_frames
@@ -221,8 +224,10 @@ class KeyStep:
             call_write_frame_subtitle(data, self.indexes.tween.i, params_string, sub_step.tween < 1.0)
 
     def apply_frame_warp_transform(self, data: RenderData, image):
-        previous, self.depth = call_anim_frame_warp(data, self.i, image, None)
-        return previous
+        is_not_last_frame = self.i < data.args.anim_args.max_frames
+        if is_not_last_frame:  # TODO? why not
+            previous, self.depth = call_anim_frame_warp(data, self.i, image, None)
+            return previous
 
     def _do_hybrid_compositing_on_cond(self, data: RenderData, image, condition):
         i = data.indexes.frame.i
@@ -264,7 +269,8 @@ class KeyStep:
             if data.images.color_match is None:
                 # TODO questionable
                 # initialize color_match for next iteration with current image, but don't do anything yet.
-                data.images.color_match = image.copy()
+                if image is not None:
+                    data.images.color_match = image.copy()
             else:
                 return maintain_colors(image, data.images.color_match, data.args.anim_args.color_coherence)
         return image
@@ -320,16 +326,22 @@ class KeyStep:
         if data.images.has_previous():  # skipping 1st iteration
             transformed_image = frame_tube(data, self)(data.images.previous)
             # TODO separate
-            noised_image = contrasted_noise_tube(data, self)(transformed_image)
-            data.update_sample_and_args_for_current_progression_step(self, noised_image)
-            return transformed_image
+            if transformed_image is None:  # FIXME? shouldn't really happen
+                log_utils.debug(f"transformed_image {transformed_image}")
+                noised_image = contrasted_noise_tube(data, self)(data.images.previous)
+                data.update_sample_and_args_for_current_progression_step(self, noised_image)
+                return data.images.previous
+            else:
+                noised_image = contrasted_noise_tube(data, self)(transformed_image)
+                data.update_sample_and_args_for_current_progression_step(self, noised_image)
+                return transformed_image
         else:
             return None
 
     def prepare_generation(self, frame_tube, contrasted_noise_tube):
         self.render_data.images.color_match = self.create_color_match_for_video()
         self.render_data.images.previous = self.transform_and_update_noised_sample(frame_tube, contrasted_noise_tube)
-        self.render_data.prepare_generation(self.render_data, self)
+        self.render_data.prepare_generation(self.render_data, self, self.i)
         self.maybe_redo_optical_flow()
         self.maybe_redo_diffusion()
 
@@ -350,6 +362,10 @@ class KeyStep:
             self.do_diffusion_redo()
 
     def do_generation(self):
+        max_frames = self.render_data.args.anim_args.max_frames
+        if self.render_data.indexes.frame.i >= max_frames:
+            # TODO? prevents an error elsewhere when generating last frame, but `indexes`..
+            self.render_data.indexes.update_frame(max_frames - 1)
         return call_generate(self.render_data, self)
 
     def progress_and_save(self, image):
@@ -362,12 +378,20 @@ class KeyStep:
         opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         if not data.animation_mode.has_video_input:
             data.images.previous = opencv_image
+        filename = filename_utils.frame_filename(data, self.i)
+
+        is_overwrite = False  # replace the processed tween frame with the original one? (probably not)
+        if is_overwrite or not os.path.exists(os.path.join(data.args.args.outdir, filename)):
+            # In many cases, the original images may look more detailed or 'better' than the processed ones,
+            # but we only save the frames that were processed tough the flows to keep the output consistent.
+            # However, it may be preferable to use them for the 1st and for the last frame, or as thumbnails.
+            # TODO perhaps save original frames in a different sub dir?
+            save_image(image, 'PIL', filename, data.args.args, data.args.video_args, data.args.root)
+
+        self.depth = self.generate_and_save_depth_map_if_active()
         if data.turbo.has_steps():
             return data.indexes.frame.i + data.turbo.progress_step(data.indexes, opencv_image)
         else:
-            filename = filename_utils.frame(data, data.indexes)
-            save_image(image, 'PIL', filename, data.args.args, data.args.video_args, data.args.root)
-            self.depth = generate_depth_maps_if_active(data)
             return data.indexes.frame.i + 1  # normal (i.e. 'non-turbo') step always increments by 1.
 
     def next_seed(self):
@@ -376,7 +400,7 @@ class KeyStep:
     def update_render_preview(self):
         self.last_preview_frame = call_render_preview(self.render_data, self.last_preview_frame)
 
-    def generate_depth_maps_if_active(self):
+    def generate_and_save_depth_map_if_active(self):
         data = self.render_data
         # TODO move all depth related stuff to new class.
         if data.args.anim_args.save_depth_maps:
