@@ -13,6 +13,8 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # Contact the authors: https://deforum.github.io/
+
+# noinspection PyUnresolvedReferences
 from modules.shared import opts, state
 
 from .rendering import img_2_img_tubes
@@ -22,12 +24,11 @@ from .rendering.util import log_utils, memory_utils, web_ui_utils
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
-    original_print_combined_table = log_utils.suppress_table_printing()
     render_data = RenderData.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
     run_render_animation(render_data)
-    log_utils.reactivate_table_printing(original_print_combined_table)
 
 
+@log_utils.with_suppressed_table_printing
 def run_render_animation(data: RenderData):
     web_ui_utils.init_job(data)
     start_index = data.turbo.find_start(data)
@@ -38,10 +39,9 @@ def run_render_animation(data: RenderData):
         memory_utils.handle_med_or_low_vram_before_step(data)
         web_ui_utils.update_job(data)
 
-        is_step_having_tweens = len(key_step.tweens) > 0
-        if is_step_having_tweens:
+        is_step_with_tweens = len(key_step.tweens) > 0
+        if is_step_with_tweens:  # emit tweens
             log_utils.print_tween_frame_from_to_info(key_step)
-            # emit tweens
             grayscale_tube = img_2_img_tubes.conditional_force_tween_to_grayscale_tube
             overlay_mask_tube = img_2_img_tubes.conditional_add_overlay_mask_tube
             [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube)

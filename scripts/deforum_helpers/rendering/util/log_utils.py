@@ -66,7 +66,7 @@ def debug(s: str):
     print(f"{YELLOW}{BOLD}{eye_catcher} Debug: {RESET}{s}")
 
 
-def suppress_table_printing():
+def _suppress_table_printing():
     # The combined table that is normally printed to the command line is suppressed,
     # because it's not compatible with variable keyframe cadence.
     def do_nothing(*args):
@@ -77,5 +77,15 @@ def suppress_table_printing():
     return original_print_combined_table
 
 
-def reactivate_table_printing(original_print_combined_table):
+def _reactivate_table_printing(original_print_combined_table):
     generate.print_combined_table = original_print_combined_table
+
+
+def with_suppressed_table_printing(func):
+    def wrapper(*args, **kwargs):
+        original_print_combined_table = _suppress_table_printing()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            _reactivate_table_printing(original_print_combined_table)
+    return wrapper
