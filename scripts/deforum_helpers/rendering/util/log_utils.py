@@ -1,3 +1,5 @@
+from ... import generate
+
 RED = "\033[31m"
 ORANGE = "\033[38;5;208m"
 YELLOW = "\033[33m"
@@ -15,7 +17,10 @@ UNDERLINE = "\033[4m"
 RESET = "\033[0m"
 
 
-def print_tween_frame_from_to_info(cadence, tween_values, start_i, end_i):
+def print_tween_frame_from_to_info(key_step):
+    tween_values = key_step.tween_values
+    start_i = key_step.tweens[0].i()
+    end_i = key_step.tweens[-1].i()
     print()  # additional newline to skip out of progress bar.
     if end_i > 0:
         formatted_values = [f"{val:.2f}" for val in tween_values]
@@ -59,3 +64,18 @@ def info(s: str):
 def debug(s: str):
     eye_catcher = "###"
     print(f"{YELLOW}{BOLD}{eye_catcher} Debug: {RESET}{s}")
+
+
+def suppress_table_printing():
+    # The combined table that is normally printed to the command line is suppressed,
+    # because it's not compatible with variable keyframe cadence.
+    def do_nothing(*args):
+        pass
+
+    original_print_combined_table = generate.print_combined_table
+    generate.print_combined_table = do_nothing  # Monkey patch with do_nothing
+    return original_print_combined_table
+
+
+def reactivate_table_printing(original_print_combined_table):
+    generate.print_combined_table = original_print_combined_table

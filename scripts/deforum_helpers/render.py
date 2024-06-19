@@ -13,11 +13,8 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # Contact the authors: https://deforum.github.io/
-
-# noinspection PyUnresolvedReferences
 from modules.shared import opts, state
 
-from . import generate
 from .rendering import img_2_img_tubes
 from .rendering.data.render_data import RenderData
 from .rendering.data.step import KeyIndexDistribution, KeyStep
@@ -25,10 +22,10 @@ from .rendering.util import log_utils, memory_utils, web_ui_utils
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
-    original_print_combined_table = suppress_table_printing()
+    original_print_combined_table = log_utils.suppress_table_printing()
     render_data = RenderData.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
     run_render_animation(render_data)
-    reactivate_table_printing(original_print_combined_table)
+    log_utils.reactivate_table_printing(original_print_combined_table)
 
 
 def run_render_animation(data: RenderData):
@@ -43,12 +40,7 @@ def run_render_animation(data: RenderData):
 
         is_step_having_tweens = len(key_step.tweens) > 0
         if is_step_having_tweens:
-            # print tween frame info  # TODO move to log_utils
-            turbo_steps = key_step.render_data.turbo.steps
-            tween_values = key_step.tween_values
-            from_i = key_step.tweens[0].i()
-            to_i = key_step.tweens[-1].i()
-            log_utils.print_tween_frame_from_to_info(turbo_steps, tween_values, from_i, to_i)
+            log_utils.print_tween_frame_from_to_info(key_step)
             # emit tweens
             grayscale_tube = img_2_img_tubes.conditional_force_tween_to_grayscale_tube
             overlay_mask_tube = img_2_img_tubes.conditional_add_overlay_mask_tube
@@ -62,7 +54,7 @@ def run_render_animation(data: RenderData):
         contrasted_noise_tube = img_2_img_tubes.contrasted_noise_transformation_tube
         key_step.prepare_generation(frame_tube, contrasted_noise_tube)
 
-        image = key_step.do_generation()  # FIXME supress or fix inaccurate info to `print_combined_table`
+        image = key_step.do_generation()
         if image is None:
             log_utils.print_warning_generate_returned_no_image()
             break
@@ -78,18 +70,3 @@ def run_render_animation(data: RenderData):
         key_step.update_render_preview()
         web_ui_utils.update_status_tracker(key_step.render_data)
         key_step.render_data.animation_mode.unload_raft_and_depth_model()
-
-
-def suppress_table_printing():
-    # The combined table that is normally printed to the command line is suppressed,
-    # because it's not compatible with variable keyframe cadence.
-    def do_nothing(*args):
-        pass
-
-    original_print_combined_table = generate.print_combined_table
-    generate.print_combined_table = do_nothing  # Monkey patch with do_nothing
-    return original_print_combined_table
-
-
-def reactivate_table_printing(original_print_combined_table):
-    generate.print_combined_table = original_print_combined_table
