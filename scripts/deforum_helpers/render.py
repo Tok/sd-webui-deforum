@@ -17,6 +17,7 @@
 # noinspection PyUnresolvedReferences
 from modules.shared import opts, state
 
+from . import generate
 from .rendering import img_2_img_tubes
 from .rendering.data.render_data import RenderData
 from .rendering.data.step import KeyIndexDistribution, KeyStep
@@ -24,8 +25,10 @@ from .rendering.util import log_utils, memory_utils, web_ui_utils
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
+    original_print_combined_table = suppress_table_printing()
     render_data = RenderData.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
     run_render_animation(render_data)
+    reactivate_table_printing(original_print_combined_table)
 
 
 def run_render_animation(data: RenderData):
@@ -75,3 +78,18 @@ def run_render_animation(data: RenderData):
         key_step.update_render_preview()
         web_ui_utils.update_status_tracker(key_step.render_data)
         key_step.render_data.animation_mode.unload_raft_and_depth_model()
+
+
+def suppress_table_printing():
+    # The combined table that is normally printed to the command line is suppressed,
+    # because it's not compatible with variable keyframe cadence.
+    def do_nothing(*args):
+        pass
+
+    original_print_combined_table = generate.print_combined_table
+    generate.print_combined_table = do_nothing  # Monkey patch with do_nothing
+    return original_print_combined_table
+
+
+def reactivate_table_printing(original_print_combined_table):
+    generate.print_combined_table = original_print_combined_table
