@@ -15,7 +15,8 @@
 # Contact the authors: https://deforum.github.io/
 
 # noinspection PyUnresolvedReferences
-from modules.shared import opts, state
+from modules.shared import cmd_opts, opts, progress_print_out, state
+from tqdm import tqdm
 
 from .rendering import img_2_img_tubes
 from .rendering.data.render_data import RenderData
@@ -44,8 +45,9 @@ def run_render_animation(data: RenderData):
             log_utils.print_tween_frame_from_to_info(key_step)
             grayscale_tube = img_2_img_tubes.conditional_force_tween_to_grayscale_tube
             overlay_mask_tube = img_2_img_tubes.conditional_add_overlay_mask_tube
-            [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube)
-             for tween in key_step.tweens]
+            tq = tqdm(key_step.tweens, position=1, desc="Tweens progress", file=progress_print_out,
+                      disable=cmd_opts.disable_console_progressbars, leave=False, colour='#FFA468')
+            [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube) for tween in tq]
 
         log_utils.print_animation_frame_info(key_step.i, max_frames)
         key_step.maybe_write_frame_subtitle()

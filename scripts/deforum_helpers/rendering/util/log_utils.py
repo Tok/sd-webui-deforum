@@ -1,5 +1,6 @@
 from ... import generate
 
+COLOUR_RGB = '\x1b[38;2;%d;%d;%dm'
 RED = "\033[31m"
 ORANGE = "\033[38;5;208m"
 YELLOW = "\033[33m"
@@ -14,26 +15,27 @@ WHITE = "\033[37m"
 BOLD = "\033[1m"
 UNDERLINE = "\033[4m"
 
-RESET = "\033[0m"
+RESET = "\x1b[0m"
 
 
-def print_tween_frame_from_to_info(key_step):
-    tween_values = key_step.tween_values
-    start_i = key_step.tweens[0].i()
-    end_i = key_step.tweens[-1].i()
-    print()  # additional newline to skip out of progress bar.
-    if end_i > 0:
-        formatted_values = [f"{val:.2f}" for val in tween_values]
-        count = end_i - start_i + 1
-        print(f"{ORANGE}Creating in-between: {RESET}{count} frames ({start_i}-->{end_i}){formatted_values}")
+def print_tween_frame_from_to_info(key_step, is_disabled=True):
+    if not is_disabled:  # replaced with prog bar, but value info print may be useful
+        tween_values = key_step.tween_values
+        start_i = key_step.tweens[0].i()
+        end_i = key_step.tweens[-1].i()
+        if end_i > 0:
+            formatted_values = [f"{val:.2f}" for val in tween_values]
+            count = end_i - start_i + 1
+            print(f"{ORANGE}Creating in-between: {RESET}{count} frames ({start_i}-->{end_i}){formatted_values}")
 
 
 def print_animation_frame_info(i, max_frames):
+    print()  # skipping out of the progress bar.
     print(f"{CYAN}Animation frame: {RESET}{i}/{max_frames}")
 
 
-def print_tween_frame_info(data, indexes, cadence_flow, tween, if_disable=True):
-    if not if_disable:
+def print_tween_frame_info(data, indexes, cadence_flow, tween, is_disabled=True):
+    if not is_disabled:  # disabled because it's spamming the cli on high cadence settings.
         msg_flow_name = '' if cadence_flow is None else data.args.anim_args.optical_flow_cadence + ' optical flow '
         msg_frame_info = f"cadence frame: {indexes.tween.i}; tween: {tween:0.2f};"
         print(f"Creating in-between {msg_flow_name}{msg_frame_info}")
@@ -66,26 +68,25 @@ def debug(s: str):
     print(f"{YELLOW}{BOLD}{eye_catcher} Debug: {RESET}{s}")
 
 
-def _suppress_table_printing():
-    # The combined table that is normally printed to the command line is suppressed,
-    # because it's not compatible with variable keyframe cadence.
-    def do_nothing(*args):
-        pass
-
-    original_print_combined_table = generate.print_combined_table
-    generate.print_combined_table = do_nothing  # Monkey patch with do_nothing
-    return original_print_combined_table
-
-
-def _reactivate_table_printing(original_print_combined_table):
-    generate.print_combined_table = original_print_combined_table
-
-
 def with_suppressed_table_printing(func):
+    def _suppress_table_printing():
+        # The combined table that is normally printed to the command line is suppressed,
+        # because it's not compatible with variable keyframe cadence.
+        def do_nothing(*args):
+            pass
+
+        original_print_combined_table = generate.print_combined_table
+        generate.print_combined_table = do_nothing  # Monkey patch with do_nothing
+        return original_print_combined_table
+
+    def _reactivate_table_printing(original_print_combined_table):
+        generate.print_combined_table = original_print_combined_table
+
     def wrapper(*args, **kwargs):
-        original_print_combined_table = _suppress_table_printing()
+        original = _suppress_table_printing()
         try:
             return func(*args, **kwargs)
         finally:
-            _reactivate_table_printing(original_print_combined_table)
+            _reactivate_table_printing(original)
+
     return wrapper
