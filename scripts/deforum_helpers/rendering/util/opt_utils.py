@@ -18,4 +18,3 @@ def generation_info_for_subtitles(render_data):
 
 def is_generate_subtitles(render_data):
     return render_data.args.opts.data.get("deforum_save_gen_info_as_srt")
-

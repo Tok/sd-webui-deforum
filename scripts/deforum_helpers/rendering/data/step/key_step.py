@@ -1,12 +1,11 @@
 import os
-import random
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, List
 
 import cv2
 import numpy as np
 
+from . import KeyIndexDistribution
 from .tween_step import Tween
 from ..render_data import RenderData
 from ..schedule import Schedule
@@ -75,20 +74,6 @@ class KeyStepData:
             "flow_factor": keys.hybrid_flow_factor_schedule_series[i]}
 
 
-class KeyIndexDistribution(Enum):
-    UNIFORM_SPACING = "Uniform Spacing"
-    RANDOM_SPACING = "Random Spacing"
-    RANDOM_PLACEMENT = "Random Placement"
-
-    @property
-    def name(self):
-        return self.value
-
-    @staticmethod
-    def default():
-        return KeyIndexDistribution.UNIFORM_SPACING
-
-
 @dataclass(init=True, frozen=False, repr=False, eq=False)
 class KeyStep:
     """Key steps are the steps for frames that actually get diffused (as opposed to tween frame steps)."""
@@ -126,7 +111,9 @@ class KeyStep:
 
     @staticmethod
     def recalculate_and_check_tweens(key_steps, start_index, max_frames, num_key_steps, index_distribution):
-        key_steps = KeyStep._recalculate_and_index_key_steps(key_steps, start_index, max_frames, index_distribution)
+        key_indices = index_distribution.calculate(start_index, max_frames, num_key_steps)
+        for i, key_step in enumerate(key_indices):
+            key_steps[i].i = key_indices[i]
         key_steps = KeyStep._add_tweens_to_key_steps(key_steps)
         assert len(key_steps) == num_key_steps
 
@@ -145,57 +132,11 @@ class KeyStep:
         return key_steps
 
     @staticmethod
-    def _recalculate_and_index_key_steps(key_steps: List['KeyStep'], start_index, max_frames, index_distribution):
-        def calculate_uniform_indexes():
-            return [1 + start_index + int(n * (max_frames - 1 - start_index) / (len(key_steps) - 1))
-                    for n in range(len(key_steps))]
-
-        # TODO move logic into enum
-        if index_distribution == KeyIndexDistribution.UNIFORM_SPACING:
-            uniform_indexes = calculate_uniform_indexes()
-            for i, key_step in enumerate(key_steps):
-                key_step.i = uniform_indexes[i]
-        elif index_distribution == KeyIndexDistribution.RANDOM_SPACING:
-            uniform_indexes = calculate_uniform_indexes()
-            key_steps[0].i = start_index + 1  # Enforce first index
-            key_steps[-1].i = max_frames  # Enforce last index
-            total_spacing = 0  # Calculate initial average spacing
-            for i in range(1, len(key_steps)):
-                total_spacing += key_steps[i].i - key_steps[i - 1].i
-            average_spacing = total_spacing / (len(key_steps) - 1)  # Avoid division by zero
-            # Noise factor to control randomness (adjust as needed)
-            noise_factor = 0.5  # Higher value creates more variation
-            log_utils.debug(f"average_spacing {average_spacing}")
-            for i, key_step in enumerate(key_steps):
-                if i == 0 or i == len(key_steps) - 1:
-                    continue  # Skip first and last (already set)
-                base_index = uniform_indexes[i]
-                noise = random.uniform(-noise_factor, noise_factor) * average_spacing
-                log_utils.debug(f"base_index {base_index} noise {noise} i {int(base_index + noise)}")
-                key_step.i = int(base_index + noise)  # Apply base index and noise
-                # Ensure index stays within frame bounds
-                key_step.i = max(start_index, min(key_step.i, max_frames - 1))
-        elif index_distribution == KeyIndexDistribution.RANDOM_PLACEMENT:
-            key_steps[0].i = start_index + 1  # Enforce first index
-            key_steps[-1].i = max_frames  # Enforce last index
-            # Randomly distribute indices for remaining keyframes
-            for i in range(1, len(key_steps) - 1):
-                key_step = key_steps[i]
-                key_step.i = random.randint(start_index + 1, max_frames - 2)
-        else:
-            raise KeyError(f"KeyIndexDistribution {index_distribution} doesn't exist.")
-
-        is_random = index_distribution in [KeyIndexDistribution.RANDOM_SPACING, KeyIndexDistribution.RANDOM_PLACEMENT]
-        if is_random:
-            key_steps.sort(key=lambda ks: ks.i)
-        return key_steps
-
-    @staticmethod
     def _add_tweens_to_key_steps(key_steps):
         for i in range(1, len(key_steps)):  # skipping 1st key frame
             data = key_steps[i].render_data
             if data.turbo.is_emit_in_between_frames():
-                from_i = key_steps[i-1].i
+                from_i = key_steps[i - 1].i
                 to_i = key_steps[i].i
                 tweens, values = Tween.create_in_between_steps(key_steps[i], data, from_i, to_i)
                 for tween in tweens:  # TODO move to creation

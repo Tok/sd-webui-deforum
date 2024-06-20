@@ -15,7 +15,8 @@
 # Contact the authors: https://deforum.github.io/
 
 # noinspection PyUnresolvedReferences
-from modules.shared import opts, state
+from modules.shared import cmd_opts, opts, progress_print_out, state
+from tqdm import tqdm
 
 from .rendering import img_2_img_tubes
 from .rendering.data.render_data import RenderData
@@ -28,6 +29,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
     run_render_animation(render_data)
 
 
+@log_utils.with_suppressed_table_printing
 def run_render_animation(data: RenderData):
     web_ui_utils.init_job(data)
     start_index = data.turbo.find_start(data)
@@ -38,19 +40,14 @@ def run_render_animation(data: RenderData):
         memory_utils.handle_med_or_low_vram_before_step(data)
         web_ui_utils.update_job(data)
 
-        is_step_having_tweens = len(key_step.tweens) > 0
-        if is_step_having_tweens:
-            # print tween frame info  # TODO move to log_utils
-            turbo_steps = key_step.render_data.turbo.steps
-            tween_values = key_step.tween_values
-            from_i = key_step.tweens[0].i()
-            to_i = key_step.tweens[-1].i()
-            log_utils.print_tween_frame_from_to_info(turbo_steps, tween_values, from_i, to_i)
-            # emit tweens
+        is_step_with_tweens = len(key_step.tweens) > 0
+        if is_step_with_tweens:  # emit tweens
+            log_utils.print_tween_frame_from_to_info(key_step)
             grayscale_tube = img_2_img_tubes.conditional_force_tween_to_grayscale_tube
             overlay_mask_tube = img_2_img_tubes.conditional_add_overlay_mask_tube
-            [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube)
-             for tween in key_step.tweens]
+            tq = tqdm(key_step.tweens, position=1, desc="Tweens progress", file=progress_print_out,
+                      disable=cmd_opts.disable_console_progressbars, leave=False, colour='#FFA468')
+            [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube) for tween in tq]
 
         log_utils.print_animation_frame_info(key_step.i, max_frames)
         key_step.maybe_write_frame_subtitle()
@@ -59,7 +56,7 @@ def run_render_animation(data: RenderData):
         contrasted_noise_tube = img_2_img_tubes.contrasted_noise_transformation_tube
         key_step.prepare_generation(frame_tube, contrasted_noise_tube)
 
-        image = key_step.do_generation()  # FIXME supress or fix inaccurate info to `print_combined_table`
+        image = key_step.do_generation()
         if image is None:
             log_utils.print_warning_generate_returned_no_image()
             break

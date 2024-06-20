@@ -6,7 +6,7 @@ from cv2.typing import MatLike
 
 @dataclass(init=True, frozen=False, repr=False, eq=True)
 class Images:
-    previous: MatLike = None
+    previous: MatLike | None = None
     color_match: MatLike = None
 
     def has_previous(self):
