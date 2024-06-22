@@ -3,20 +3,13 @@ from dataclasses import dataclass
 from ....animation_key_frames import DeformAnimKeys, LooperAnimKeys
 
 
-@dataclass(init=True, frozen=True, repr=False, eq=False)
+@dataclass(init=True, frozen=False, repr=False, eq=False)
 class AnimationKeys:
     deform_keys: DeformAnimKeys
     looper_keys: LooperAnimKeys
 
-    def update(self, i: int):
-        keys = self.looper_keys
-        keys.use_looper = keys.use_looper
-        keys.imagesToKeyframe = keys.imagesToKeyframe
-        keys.imageStrength = keys.image_strength_schedule_series[i]
-        keys.blendFactorMax = keys.blendFactorMax_series[i]
-        keys.blendFactorSlope = keys.blendFactorSlope_series[i]
-        keys.tweeningFramesSchedule = keys.tweening_frames_schedule_series[i]
-        keys.colorCorrectionFactor = keys.color_correction_factor_series[i]
+    def update_looper(self, loop_args, anim_args, seed):
+        self.looper_keys = LooperAnimKeys(loop_args, anim_args, seed)
 
     @staticmethod
     def _choose_default_or_parseq_keys(default_keys, parseq_keys, parseq_adapter):
