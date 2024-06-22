@@ -47,7 +47,7 @@ class RenderData:
     mask: Mask | None
     seed: int
     args: RenderInitArgs
-    parseq_adapter: Any
+    parseq_adapter: ParseqAdapter
     srt: Any
     animation_keys: AnimationKeys
     animation_mode: AnimationMode

@@ -35,7 +35,7 @@ def run_render_animation(data: RenderData):
     start_index = data.turbo.find_start(data)
     max_frames = data.args.anim_args.max_frames
 
-    key_steps = KeyStep.create_all_steps(data, start_index, KeyIndexDistribution.UNIFORM_SPACING)
+    key_steps = KeyStep.create_all_steps(data, start_index, KeyIndexDistribution.UNIFORM_WITH_PARSEQ)
     for key_step in key_steps:
         memory_utils.handle_med_or_low_vram_before_step(data)
         web_ui_utils.update_job(data)

@@ -100,7 +100,9 @@ class KeyStep:
         max_frames = data.args.anim_args.max_frames
         num_key_steps = 1 + int((max_frames - start_index) / data.cadence())
         key_steps = [KeyStep.create(data) for _ in range(0, num_key_steps)]
-        key_steps = KeyStep.recalculate_and_check_tweens(key_steps, start_index, max_frames, num_key_steps, index_dist)
+        actual_num_key_steps = len(key_steps)
+        key_steps = KeyStep._recalculate_and_check_tweens(key_steps, start_index, max_frames, actual_num_key_steps,
+                                                          data.parseq_adapter, index_dist)
 
         # Print message  # TODO move to log_utils
         tween_count = sum(len(ks.tweens) for ks in key_steps)
@@ -110,8 +112,9 @@ class KeyStep:
         return key_steps
 
     @staticmethod
-    def recalculate_and_check_tweens(key_steps, start_index, max_frames, num_key_steps, index_distribution):
-        key_indices = index_distribution.calculate(start_index, max_frames, num_key_steps)
+    def _recalculate_and_check_tweens(key_steps, start_index, max_frames, num_key_steps,
+                                      parseq_adapter, index_distribution):
+        key_indices = index_distribution.calculate(start_index, max_frames, num_key_steps, parseq_adapter)
         for i, key_step in enumerate(key_indices):
             key_steps[i].i = key_indices[i]
         key_steps = KeyStep._add_tweens_to_key_steps(key_steps)
