@@ -6,7 +6,7 @@ from .subtitle import Srt
 from ..util.call.anim import call_anim_frame_warp
 from ..util.call.resume import call_get_resume_vars
 from ...hybrid_video import image_transform_ransac, image_transform_optical_flow
-
+from ..util import log_utils
 
 @dataclass(init=True, frozen=False, repr=False, eq=True)
 class ImageFrame:
@@ -103,13 +103,17 @@ class Turbo:
                 cadence = data.args.anim_args.optical_flow_cadence
                 flow = call_get_flow_from_images(data, self.prev.image, self.next.image, cadence)
                 tween_step.cadence_flow = (flow / 2)
-            self.next.image = advance_optical_flow
+                log_utils.debug(f"cadence {cadence}")
             self.advance_optical_flow(tween_step)
-            flow_factor = 1
+            diff = tween_step.indexes.frame.i - tween_step.i()
+            flow_factor = 1.0 / diff
+            log_utils.debug(f"flow_factor {flow_factor}")
             self.next.image = image_transform_optical_flow(self.next.image, -tween_step.cadence_flow, flow_factor)
 
     def do_optical_flow_cadence_after_animation_warping(self, data, indexes, tween_step):
-        if tween_step.cadence_flow is not None:
+        is_enforce = True
+        if is_enforce and tween_step.cadence_flow is not None:
+            log_utils.debug("do_optical_flow_cadence_after_animation_warping")
             # TODO Calculate all increments before running the generation (and try to avoid abs->rel->abc conversions).
             temp_flow = abs_flow_to_rel_flow(tween_step.cadence_flow, data.width(), data.height())
             new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, temp_flow, self.depth)

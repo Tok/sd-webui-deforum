@@ -38,7 +38,7 @@ class RenderInitArgs:
     root: RootArgs = None
 
 
-@dataclass(init=True, frozen=True, repr=False, eq=False)
+@dataclass(init=True, frozen=False, repr=False, eq=False)
 class RenderData:
     """The purpose of this class is to group and control all data used in render_animation"""
     images: Images | None  # TODO rename to reference_images?
@@ -47,7 +47,7 @@ class RenderData:
     mask: Mask | None
     seed: int
     args: RenderInitArgs
-    parseq_adapter: Any
+    parseq_adapter: ParseqAdapter
     srt: Any
     animation_keys: AnimationKeys
     animation_mode: AnimationMode
@@ -284,7 +284,7 @@ class RenderData:
         self.prompt_for_current_step(i)
         self.update_video_data_for_current_frame(i, step)
         self.update_mask_image(step, data.mask)
-        self.animation_keys.update(i)
+        self.animation_keys = AnimationKeys.from_args(self.args, self.parseq_adapter, self.seed)
         opt_utils.setup(self, step.schedule)
         memory_utils.handle_vram_if_depth_is_predicted(data)
 

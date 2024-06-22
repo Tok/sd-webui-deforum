@@ -63,6 +63,10 @@ def info(s: str):
     print(f"Info: {s}")
 
 
+def warn(s: str):
+    print(f"{YELLOW}Warn: {RESET}{s}")
+
+
 def debug(s: str):
     eye_catcher = "###"
     print(f"{YELLOW}{BOLD}{eye_catcher} Debug: {RESET}{s}")
