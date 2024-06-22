@@ -37,13 +37,21 @@ class KeyIndexDistribution(Enum):
 
     @staticmethod
     def _uniform_with_parseq_indexes(start_index, max_frames, num_key_steps, parseq_adapter):
+        """Calculates uniform indices according to cadence, but parseq key frames replace the closest deforum key."""
+        uniform_indices = KeyIndexDistribution._uniform_indexes(start_index, max_frames, num_key_steps)
         parseq_key_frames = [keyframe["frame"] for keyframe in parseq_adapter.parseq_json["keyframes"]]
-        parseq_key_frames = parseq_key_frames[1:-1]  # Ignore 1st and last parseq frame, because they're keys anyway.
-        num_parseq_key_frames = len(parseq_key_frames)
-        num_uniform_key_frames = num_key_steps - num_parseq_key_frames
-        uniform_indices = KeyIndexDistribution._uniform_indexes(start_index, max_frames, num_uniform_key_frames)
-        key_frames = parseq_key_frames.copy()
-        key_frames.extend(uniform_indices)  # FIXME, if this replaces a frame, we need to generated an additional one.
+        shifted_parseq_frames = [frame + 1 for frame in parseq_key_frames]
+        key_frames_set = set(uniform_indices)  # set for faster membership checks
+
+        # Insert parseq keyframes while maintaining keyframe count
+        for current_frame in shifted_parseq_frames:
+            if current_frame not in key_frames_set:
+                # Find the closest index in the set to replace
+                closest_index = min(key_frames_set, key=lambda x: abs(x - current_frame))
+                key_frames_set.remove(closest_index)
+                key_frames_set.add(current_frame)
+
+        key_frames = list(key_frames_set)
         key_frames.sort()
         assert len(key_frames) == num_key_steps
         return key_frames
