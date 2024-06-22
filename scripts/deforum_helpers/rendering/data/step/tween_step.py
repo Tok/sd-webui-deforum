@@ -117,4 +117,5 @@ class Tween:
         if opt_utils.is_generate_subtitles(data):
             params_to_print = opt_utils.generation_info_for_subtitles(data)
             params_string = call_format_animation_params(data, self.indexes.tween.i, params_to_print)
-            call_write_frame_subtitle(data, self.indexes.tween.i, params_string, sub_step.tween < 1.0)
+            is_cadence = float(self.tween) < 1.0
+            call_write_frame_subtitle(data, self.indexes.tween.i, params_string, is_cadence)

@@ -39,6 +39,10 @@ class KeyIndexDistribution(Enum):
     def _uniform_with_parseq_indexes(start_index, max_frames, num_key_steps, parseq_adapter):
         """Calculates uniform indices according to cadence, but parseq key frames replace the closest deforum key."""
         uniform_indices = KeyIndexDistribution._uniform_indexes(start_index, max_frames, num_key_steps)
+        if not parseq_adapter.use_parseq:
+            log_utils.warn("UNIFORM_WITH_PARSEQ, but Parseq is not active, using UNIFORM_SPACING instead.")
+            return uniform_indices
+
         parseq_key_frames = [keyframe["frame"] for keyframe in parseq_adapter.parseq_json["keyframes"]]
         shifted_parseq_frames = [frame + 1 for frame in parseq_key_frames]
         key_frames_set = set(uniform_indices)  # set for faster membership checks
