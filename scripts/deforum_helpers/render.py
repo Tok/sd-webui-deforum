@@ -14,14 +14,17 @@
 
 # Contact the authors: https://deforum.github.io/
 
+import os
+from pathlib import Path
+
+import PIL
 # noinspection PyUnresolvedReferences
 from modules.shared import cmd_opts, opts, progress_print_out, state
-from tqdm import tqdm
 
 from .rendering import img_2_img_tubes
 from .rendering.data.render_data import RenderData
 from .rendering.data.step import KeyIndexDistribution, KeyStep
-from .rendering.util import log_utils, memory_utils, web_ui_utils
+from .rendering.util import filename_utils, log_utils, memory_utils, web_ui_utils
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
@@ -32,11 +35,21 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
 @log_utils.with_suppressed_table_printing
 def run_render_animation(data: RenderData):
     web_ui_utils.init_job(data)
-    start_index = data.turbo.find_start(data)
+    _ = data.turbo.find_start(data)  # called because it sets up step vars
+    start_index = 0
     max_frames = data.args.anim_args.max_frames
 
     key_steps = KeyStep.create_all_steps(data, start_index, KeyIndexDistribution.UNIFORM_WITH_PARSEQ)
     for key_step in key_steps:
+        # Check if resume
+        filename = filename_utils.frame_filename(data, key_step.i)
+        full_path = Path(data.output_directory) / filename
+        is_file_existing = os.path.exists(full_path)
+        if is_file_existing:
+            log_utils.warn(f"Frame {filename} exists, skipping to next key frame.")
+            key_step.render_data.args.args.seed = key_step.next_seed()
+            continue
+
         memory_utils.handle_med_or_low_vram_before_step(data)
         web_ui_utils.update_job(data)
 
@@ -45,7 +58,7 @@ def run_render_animation(data: RenderData):
             log_utils.print_tween_frame_from_to_info(key_step)
             grayscale_tube = img_2_img_tubes.conditional_force_tween_to_grayscale_tube
             overlay_mask_tube = img_2_img_tubes.conditional_add_overlay_mask_tube
-            # FIXME mute depth predictions, then reactivate?:
+            # FIXME check if verbose console output is activated, otherwise reactivate:
             # tq = tqdm(key_step.tweens, position=1, desc="Tweens progress", file=progress_print_out,
             #           disable=cmd_opts.disable_console_progressbars, leave=False, colour='#FFA468')
             tq = key_step.tweens
@@ -63,7 +76,9 @@ def run_render_animation(data: RenderData):
             log_utils.print_warning_generate_returned_no_image()
             break
 
-        image = img_2_img_tubes.conditional_frame_transformation_tube(key_step)(image)
+        # TODO move check
+        if type(image) is not PIL.Image.Image:  # check is required when resuming from timestring
+            image = img_2_img_tubes.conditional_frame_transformation_tube(key_step)(image)
         key_step.render_data.images.color_match = img_2_img_tubes.conditional_color_match_tube(key_step)(image)
 
         key_step.progress_and_save(image)

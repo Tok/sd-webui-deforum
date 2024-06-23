@@ -64,7 +64,7 @@ def info(s: str):
 
 
 def warn(s: str):
-    print(f"{YELLOW}Warn: {RESET}{s}")
+    print(f"{ORANGE}Warn: {RESET}{s}")
 
 
 def debug(s: str):
