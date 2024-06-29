@@ -98,9 +98,14 @@ class KeyStep:
     def create_all_steps(data, start_index, index_dist: KeyIndexDistribution = KeyIndexDistribution.default()):
         """Creates a list of key steps for the entire animation."""
         max_frames = data.args.anim_args.max_frames
+
         num_key_steps = 1 + int((max_frames - start_index) / data.cadence())
+        if data.parseq_adapter.use_parseq and index_dist is KeyIndexDistribution.PARSEQ_ONLY:
+            num_key_steps = len(data.parseq_adapter.parseq_json["keyframes"])
+
         key_steps = [KeyStep.create(data) for _ in range(0, num_key_steps)]
         actual_num_key_steps = len(key_steps)
+
         key_steps = KeyStep._recalculate_and_check_tweens(key_steps, start_index, max_frames, actual_num_key_steps,
                                                           data.parseq_adapter, index_dist)
 
@@ -114,9 +119,10 @@ class KeyStep:
     @staticmethod
     def _recalculate_and_check_tweens(key_steps, start_index, max_frames, num_key_steps,
                                       parseq_adapter, index_distribution):
-        key_indices = index_distribution.calculate(start_index, max_frames, num_key_steps, parseq_adapter)
+        key_indices: List[int] = index_distribution.calculate(start_index, max_frames, num_key_steps, parseq_adapter)
         for i, key_step in enumerate(key_indices):
             key_steps[i].i = key_indices[i]
+
         key_steps = KeyStep._add_tweens_to_key_steps(key_steps)
         assert len(key_steps) == num_key_steps
 
@@ -131,7 +137,9 @@ class KeyStep:
             log_utils.debug(f"Key step {i} at {ks.i}: {len(tween_indices)} tween indices: {tween_indices}")
 
         assert key_steps[0].i == 1
-        assert key_steps[-1].i == max_frames
+        if index_distribution != KeyIndexDistribution.PARSEQ_ONLY:  # just using however many key frames Parseq defines.
+            assert key_steps[-1].i == max_frames
+
         return key_steps
 
     @staticmethod

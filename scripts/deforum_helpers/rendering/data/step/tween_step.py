@@ -35,6 +35,7 @@ class Tween:
             return  # skipping tween emission on the last frame
 
         data = last_step.render_data
+        data.turbo.steps = len(last_step.tweens)
         self.handle_synchronous_status_concerns(data)
         self.process(last_step, data)
 

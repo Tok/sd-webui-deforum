@@ -39,7 +39,7 @@ def run_render_animation(data: RenderData):
     start_index = 0
     max_frames = data.args.anim_args.max_frames
 
-    key_steps = KeyStep.create_all_steps(data, start_index, KeyIndexDistribution.UNIFORM_WITH_PARSEQ)
+    key_steps = KeyStep.create_all_steps(data, start_index, KeyIndexDistribution.PARSEQ_ONLY)
     for key_step in key_steps:
         # Check if resume
         filename = filename_utils.frame_filename(data, key_step.i)
