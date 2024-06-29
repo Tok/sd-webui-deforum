@@ -35,7 +35,7 @@ class Tween:
             return  # skipping tween emission on the last frame
 
         data = last_step.render_data
-        data.turbo.steps = len(last_step.tweens)
+        #data.turbo.steps = len(last_step.tweens)
         self.handle_synchronous_status_concerns(data)
         self.process(last_step, data)
 
@@ -89,6 +89,7 @@ class Tween:
     def generate_tween_image(self, data, grayscale_tube, overlay_mask_tube):
         is_tween = True
         warped = data.turbo.do_optical_flow_cadence_after_animation_warping(data, self.indexes, self)
+        # print(f"warped {warped}")
         recolored = grayscale_tube(data)(warped)
         masked = overlay_mask_tube(data, is_tween)(recolored)
         return masked

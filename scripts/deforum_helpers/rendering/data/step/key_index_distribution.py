@@ -72,6 +72,8 @@ class KeyIndexDistribution(Enum):
 
         key_frames = list(key_frames_set)
         key_frames.sort()
+        #key_frames[0] = start_index + 1  # Enforce first index
+        #key_frames[-1] = max_frames  # Enforce last index
         assert len(key_frames) == num_key_steps
         return key_frames
 

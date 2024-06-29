@@ -111,7 +111,7 @@ class KeyStep:
 
         # Print message  # TODO move to log_utils
         tween_count = sum(len(ks.tweens) for ks in key_steps)
-        msg_start = f"Created {len(key_steps)} KeySteps with {tween_count} Tween frames."
+        msg_start = f"Created {len(key_steps)} key frames with {tween_count} tweens."
         msg_end = f"Key frame index distribution: '{index_dist.name}'."
         log_utils.info(f"{msg_start} {msg_end}")
         return key_steps
@@ -123,18 +123,19 @@ class KeyStep:
         for i, key_step in enumerate(key_indices):
             key_steps[i].i = key_indices[i]
 
-        key_steps = KeyStep._add_tweens_to_key_steps(key_steps)
+        is_enforce_tweens = index_distribution == KeyIndexDistribution.PARSEQ_ONLY
+        key_steps = KeyStep._add_tweens_to_key_steps(key_steps, is_enforce_tweens)
         assert len(key_steps) == num_key_steps
+
+        for i, ks in enumerate(key_steps):
+            tween_indices = [t.i() for t in ks.tweens]
+            log_utils.debug(f"Key frame {ks.i} has {len(tween_indices)} tweens: {tween_indices}")
 
         # The number of generated tweens depends on index since last key-frame. The last tween has the same
         # me index as the key_step it belongs to and is meant to replace the unprocessed original key frame.
         total_count = len(key_steps) + sum(len(key_step.tweens) for key_step in key_steps)
         assert total_count == max_frames + len(key_steps) - 1  # every key frame except the 1st has a tween double.
         assert key_steps[0].tweens == []  # 1st key step has no tweens
-
-        for i, ks in enumerate(key_steps):
-            tween_indices = [t.i() for t in ks.tweens]
-            log_utils.debug(f"Key step {i} at {ks.i}: {len(tween_indices)} tween indices: {tween_indices}")
 
         assert key_steps[0].i == 1
         if index_distribution != KeyIndexDistribution.PARSEQ_ONLY:  # just using however many key frames Parseq defines.
@@ -143,16 +144,17 @@ class KeyStep:
         return key_steps
 
     @staticmethod
-    def _add_tweens_to_key_steps(key_steps):
+    def _add_tweens_to_key_steps(key_steps, is_enforce_tweens):
+        log_utils.info(f"adding {len(key_steps)} tweens...")
         for i in range(1, len(key_steps)):  # skipping 1st key frame
             data = key_steps[i].render_data
-            if data.turbo.is_emit_in_between_frames():
+            if data.turbo.is_emit_in_between_frames() or is_enforce_tweens:
                 from_i = key_steps[i - 1].i
                 to_i = key_steps[i].i
                 tweens, values = Tween.create_in_between_steps(key_steps[i], data, from_i, to_i)
                 for tween in tweens:  # TODO move to creation
                     tween.indexes.update_tween_index(tween.i() + key_steps[i].i)
-                log_utils.info(f"Creating {len(tweens)} tween steps ({from_i}->{to_i}) for key step {key_steps[i].i}")
+                log_utils.info(f"Creating {len(tweens)} tweens ({from_i}->{to_i}) for key frame at {key_steps[i].i}")
                 key_steps[i].tweens = tweens
                 key_steps[i].tween_values = values
                 key_steps[i].render_data.indexes.update_tween_start(data.turbo)
@@ -165,14 +167,16 @@ class KeyStep:
     def maybe_write_frame_subtitle(self):
         data = self.render_data
         if data.turbo.is_first_step_with_subtitles(data):
-            self.subtitle_params_to_print = opt_utils.generation_info_for_subtitles(data)
-            self.subtitle_params_string = call_format_animation_params(data, data.indexes.frame.i, params_to_print)
+            params_string = opt_utils.generation_info_for_subtitles(data)
+            self.subtitle_params_to_print = params_string
+            self.subtitle_params_string = call_format_animation_params(data, data.indexes.frame.i, params_string)
             call_write_frame_subtitle(data, data.indexes.frame.i, params_string)
 
     def write_frame_subtitle_if_active(self, data: RenderData):
         if opt_utils.is_generate_subtitles(data):
-            self.subtitle_params_to_print = opt_utils.generation_info_for_subtitles(data)
-            self.subtitle_params_string = call_format_animation_params(data, self.indexes.tween.i, params_to_print)
+            params_string = opt_utils.generation_info_for_subtitles(data)
+            self.subtitle_params_to_print = params_string
+            self.subtitle_params_string = call_format_animation_params(data, self.indexes.tween.i, params_string)
             call_write_frame_subtitle(data, self.indexes.tween.i, params_string, sub_step.tween < 1.0)
 
     def apply_frame_warp_transform(self, data: RenderData, image):
@@ -332,7 +336,7 @@ class KeyStep:
             data.images.previous = opencv_image
         filename = filename_utils.frame_filename(data, self.i)
 
-        is_overwrite = False  # replace the processed tween frame with the original one? (probably not)
+        is_overwrite = True  # replace the processed tween frame with the original one? (probably not)
         if is_overwrite or not os.path.exists(os.path.join(data.args.args.outdir, filename)):
             # In many cases, the original images may look more detailed or 'better' than the processed ones,
             # but we only save the frames that were processed tough the flows to keep the output consistent.
