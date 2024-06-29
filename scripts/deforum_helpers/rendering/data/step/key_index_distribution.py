@@ -1,10 +1,12 @@
 import random
 from enum import Enum
+from typing import List
 
 from ...util import log_utils
 
 
 class KeyIndexDistribution(Enum):
+    PARSEQ_ONLY = "Parseq Only"  # cadence is ignored. all frames not present in the Parseq table are handled as tweens.
     UNIFORM_WITH_PARSEQ = "Uniform with Parseq"  # similar to uniform, but parseq key frame diffusion is enforced.
     UNIFORM_SPACING = "Uniform Spacing"  # distance defined by cadence
     RANDOM_SPACING = "Random Spacing"  # distance loosely based on cadence (poc)
@@ -16,9 +18,11 @@ class KeyIndexDistribution(Enum):
 
     @staticmethod
     def default():
-        return KeyIndexDistribution.UNIFORM_WITH_PARSEQ  # same as UNIFORM_SPACING, if no Parseq keys are present
+        return KeyIndexDistribution.PARSEQ_ONLY  # same as UNIFORM_SPACING, if no Parseq keys are present.
 
-    def calculate(self, start_index, max_frames, num_key_steps, parseq_adapter):
+    def calculate(self, start_index, max_frames, num_key_steps, parseq_adapter) -> List[int]:
+        if self == KeyIndexDistribution.PARSEQ_ONLY:
+            return self._parseq_only_indexes(start_index, max_frames, num_key_steps, parseq_adapter)
         if self == KeyIndexDistribution.UNIFORM_WITH_PARSEQ:
             return self._uniform_with_parseq_indexes(start_index, max_frames, num_key_steps, parseq_adapter)
         if self == KeyIndexDistribution.UNIFORM_SPACING:
@@ -34,6 +38,17 @@ class KeyIndexDistribution(Enum):
     def _uniform_indexes(start_index, max_frames, num_key_steps):
         return [1 + start_index + int(n * (max_frames - 1 - start_index) / (num_key_steps - 1))
                 for n in range(num_key_steps)]
+
+    @staticmethod
+    def _parseq_only_indexes(start_index, max_frames, num_key_steps, parseq_adapter):
+        """Only Parseq key frames are used. Cadence settings are ignored."""
+        if not parseq_adapter.use_parseq:
+            log_utils.warn("PARSEQ_ONLY, but Parseq is not active, using UNIFORM_SPACING instead.")
+            return KeyIndexDistribution._uniform_indexes(start_index, max_frames, num_key_steps)
+
+        parseq_key_frames = [keyframe["frame"] for keyframe in parseq_adapter.parseq_json["keyframes"]]
+        shifted_parseq_frames = [frame + 1 for frame in parseq_key_frames]
+        return shifted_parseq_frames
 
     @staticmethod
     def _uniform_with_parseq_indexes(start_index, max_frames, num_key_steps, parseq_adapter):
@@ -57,6 +72,8 @@ class KeyIndexDistribution(Enum):
 
         key_frames = list(key_frames_set)
         key_frames.sort()
+        #key_frames[0] = start_index + 1  # Enforce first index
+        #key_frames[-1] = max_frames  # Enforce last index
         assert len(key_frames) == num_key_steps
         return key_frames
 

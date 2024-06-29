@@ -8,6 +8,7 @@ from .data.render_data import RenderData
 from .data.step.key_step import KeyStep
 from .util.call.hybrid import call_get_flow_from_images, call_hybrid_composite
 from .util.fun_utils import tube
+from ..colors import maintain_colors
 from ..masks import do_overlay_mask
 
 """

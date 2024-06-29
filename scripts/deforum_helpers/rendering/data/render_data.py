@@ -284,6 +284,11 @@ class RenderData:
         self.prompt_for_current_step(i)
         self.update_video_data_for_current_frame(i, step)
         self.update_mask_image(step, data.mask)
+
+        if len(step.tweens) > 0:
+            data.args.anim_args.cadence_flow_factor_schedule = f"0: ({len(step.tweens) + 1})"
+        print(f"cadence_flow_factor_schedule: {data.args.anim_args.cadence_flow_factor_schedule}")
+
         self.animation_keys = AnimationKeys.from_args(self.args, self.parseq_adapter, self.seed)
         opt_utils.setup(self, step.schedule)
         memory_utils.handle_vram_if_depth_is_predicted(data)
