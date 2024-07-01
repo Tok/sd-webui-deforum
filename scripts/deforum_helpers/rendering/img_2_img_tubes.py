@@ -9,6 +9,7 @@ from .data.step.key_step import KeyStep
 from .util.call.hybrid import call_get_flow_from_images, call_hybrid_composite
 from .util.fun_utils import tube
 from ..colors import maintain_colors
+from ..hybrid_video import image_transform_optical_flow
 from ..masks import do_overlay_mask
 
 """
@@ -48,7 +49,7 @@ def noise_transformation_tube(data: RenderData, step: KeyStep) -> ImageTube:
     return tube(lambda img: step.apply_frame_noising(data, step, img))
 
 
-def optical_flow_redo_tube(data: RenderData, optical_flow) -> ImageTube:
+def optical_flow_redo_tube(data: RenderData, optical_flow, step) -> ImageTube:
     return tube(lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
                 lambda img: cv2.cvtColor(img, cv2.COLOR_BGR2RGB),
                 lambda img: image_transform_optical_flow(

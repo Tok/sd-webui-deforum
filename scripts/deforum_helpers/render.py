@@ -97,4 +97,5 @@ def run_render_animation(data: RenderData):
 
         key_step.update_render_preview()
         web_ui_utils.update_status_tracker(key_step.render_data)
-        key_step.render_data.animation_mode.unload_raft_and_depth_model()
+
+    data.animation_mode.unload_raft_and_depth_model()

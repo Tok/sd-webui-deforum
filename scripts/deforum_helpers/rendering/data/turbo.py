@@ -3,11 +3,13 @@ from dataclasses import dataclass
 from cv2.typing import MatLike
 
 from .subtitle import Srt
+from ..util import log_utils
 from ..util.call.anim import call_anim_frame_warp
 from ..util.call.hybrid import call_get_flow_from_images
 from ..util.call.resume import call_get_resume_vars
-from ...hybrid_video import image_transform_ransac, image_transform_optical_flow
-from ..util import log_utils
+from ...hybrid_video import (image_transform_ransac, image_transform_optical_flow,
+                             abs_flow_to_rel_flow, rel_flow_to_abs_flow)
+
 
 @dataclass(init=True, frozen=False, repr=False, eq=True)
 class ImageFrame:
@@ -21,6 +23,7 @@ class Turbo:
     steps: int  # cadence
     prev: ImageFrame
     next: ImageFrame
+    # depth: None
 
     @staticmethod
     def create(data):
@@ -67,10 +70,10 @@ class Turbo:
             turbo.advance_optical_tween_flow(self, step, flow)
             data.animation_mode.prev_flow = flow
 
-    def advance_cadence_flow(self, tween_step):
-        ff = step.step_data.sub_step.cadence_flow_factor
-        i = indexes.tween.i
-        inc = tween_step.cadence_flow_inc
+    def advance_cadence_flow(self, data, tween_step):
+        ff = data.args.anim_args.cadence_flow_factor_schedule
+        i = tween_step.i()
+        inc = tween_step.cadence_flow_inc  # FIXME
         if self.is_advance_prev(i):
             self.prev.image = image_transform_optical_flow(self.prev.image, inc, ff)
         if self.is_advance_next(i):
@@ -118,20 +121,15 @@ class Turbo:
     def do_optical_flow_cadence_after_animation_warping(self, data, indexes, tween_step):
         if not data.animation_mode.is_raft_active():
             return self.next.image
-        log_utils.debug(f"tween_step.cadence_flow {tween_step.cadence_flow}")
-        if tween_step.cadence_flow is None:
-            cadence = "RAFT"  # FIXME data.args.anim_args.optical_flow_cadence
-            flow = call_get_flow_from_images(data, self.prev.image, self.next.image, cadence)
-            tween_step.cadence_flow = (flow / 2)
         if tween_step.cadence_flow is not None:
-            log_utils.debug("do_optical_flow_cadence_after_animation_warping")
-            # TODO Calculate all increments before running the generation (and try to avoid abs->rel->abc conversions).
-            temp_flow = abs_flow_to_rel_flow(tween_step.cadence_flow, data.width(), data.height())
-            new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, temp_flow, self.depth)
+            # TODO Calculate all increments before running the generation (and try to avoid abs->rel->abs conversions).
+            # temp_flow = abs_flow_to_rel_flow(tween_step.cadence_flow, data.width(), data.height())
+            # new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, temp_flow, None)
+            new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, self.prev.image, None)
             tween_step.cadence_flow = new_flow
             abs_flow = rel_flow_to_abs_flow(tween_step.cadence_flow, data.width(), data.height())
             tween_step.cadence_flow_inc = abs_flow * tween_step.tween
-            self.advance_cadence_flow(tween_step)
+            self.advance_cadence_flow(data, tween_step)
         self.prev.index = self.next.frame_idx = indexes.tween.i if indexes is not None else 0
         if self.prev.image is not None and tween_step.tween < 1.0:
             return self.prev.image * (1.0 - tween_step.tween) + self.next.image * tween_step.tween
