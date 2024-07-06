@@ -105,7 +105,7 @@ class Tween:
             return data.depth_model.predict(image, weight, precision)
 
     def process(self, last_step, data):
-        data.turbo.advance_optical_flow_cadence_before_animation_warping(data, self)
+        data.turbo.advance_optical_flow_cadence_before_animation_warping(data, last_step, self)
         self.depth_prediction = Tween.calculate_depth_prediction(data, data.turbo)
         data.turbo.advance(data, self.indexes.tween.i, self.depth)
         data.turbo.do_hybrid_video_motion(data, self.indexes, data.images)  # FIXME? remove self.indexes or init.indexes

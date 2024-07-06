@@ -3,14 +3,24 @@ This is an experimental fork of the Deforum A1111 extension with a refactored th
 direct control of "turbo-frames" from Parseq. 
 
 ### Current Status
-This is a work in progress, and installation is not really recommended yet.
-Please refer to the original project for a stable version: [https://github.com/deforum-art/sd-webui-deforum](https://github.com/deforum-art/sd-webui-deforum)
+The extension is work in progress, and may be unstable.
+Installation is only recommended to for the purpose of using the experimental Parseq based key frame redistribution features.
+Some Deforum features like hybrid video and coherence algorithms may currently not work and may need to be turned off.
+
+For a feature complete and stable version, please refer to the original project at: [https://github.com/deforum-art/sd-webui-deforum](https://github.com/deforum-art/sd-webui-deforum)
+
+#### Installation
+Since the name of this extension is shared with the original, it requires a full removal of the regular Deforum extension from Automatic 1111.
+Then go to "Extensions" and "Install from URL": https://github.com/Tok/sd-webui-deforum
+It will add a new "Neo Core" tab in Deforum with further information on how to properly use it.
+
+The rest of this Readme can be skipped if you're not interested in the code.
 
 ## Refactored Render Core
 This section details the changes made to the render core in this fork.
 
-For easy integration, this fork isolates changes to the [`render.py`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/render.py) module and introduces the [`rendering`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/rendering) package.
-Existing code in all other Deforum modules remains untouched.
+For easy integration, this fork isolates changes mostly to the [`render.py`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/render.py) module and introduces the [`rendering`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/rendering) package.
+Existing code in other Deforum modules, remains mostly unchanged (exception is UI and args related code). 
 
 ![image](https://i.kym-cdn.com/photos/images/original/001/399/018/31f.gif)
 
@@ -41,6 +51,8 @@ Existing code in all other Deforum modules remains untouched.
 * No Workarounds: This approach eliminates the need for tricky workarounds when using Parseq with high or ignored cadence settings.
 
 ### Key Index Distribution Modes
+
+New key in 'deforum_settings.txt': "neocore_key_index_distribution"
 
 #### PARSEQ_ONLY (without cadence)
 [`KeyIndexDistribution.PARSEQ_ONLY`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/rendering/data/step/key_index_distribution.py)

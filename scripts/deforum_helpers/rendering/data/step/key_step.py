@@ -4,12 +4,14 @@ from typing import Any, List
 
 import cv2
 import numpy as np
+from PIL import Image
 
 from . import KeyIndexDistribution
 from .tween_step import Tween
 from ..render_data import RenderData
 from ..schedule import Schedule
-from ...util import filename_utils, log_utils, memory_utils, opt_utils
+from ... import img_2_img_tubes
+from ...util import filename_utils, log_utils, memory_utils, opt_utils, utils
 from ...util.call.anim import call_anim_frame_warp
 from ...util.call.gen import call_generate
 from ...util.call.hybrid import (
@@ -24,7 +26,7 @@ from ....save_images import save_image
 from ....seed import next_seed
 
 
-@dataclass(init=True, frozen=True, repr=False, eq=False)
+@dataclass(init=True, frozen=False, repr=False, eq=False)
 class KeyStepData:
     noise: Any = None
     strength: Any = None
@@ -34,7 +36,7 @@ class KeyStepData:
     sigma: Any = None
     amount: Any = None
     threshold: Any = None
-    cadence_flow_factor: Any = None
+    cadence_flow_factor: Any = None  # FIXME re-assignable
     redo_flow_factor: Any = None
     hybrid_comp_schedules: Any = None
 
@@ -134,7 +136,9 @@ class KeyStep:
         # The number of generated tweens depends on index since last key-frame. The last tween has the same
         # me index as the key_step it belongs to and is meant to replace the unprocessed original key frame.
         total_count = len(key_steps) + sum(len(key_step.tweens) for key_step in key_steps)
+
         assert total_count == max_frames + len(key_steps) - 1  # every key frame except the 1st has a tween double.
+
         assert key_steps[0].tweens == []  # 1st key step has no tweens
 
         assert key_steps[0].i == 1
@@ -370,12 +374,13 @@ class KeyStep:
 
     def do_optical_flow_redo_before_generation(self):
         data = self.render_data
+        redo = data.args.anim_args.optical_flow_redo_generation
         stored_seed = data.args.args.seed  # keep original to reset it after executing the optical flow
-        data.args.args.seed = generate_random_seed()  # set a new random seed
-        print_optical_flow_info(data, optical_flow_redo_generation)  # TODO output temp seed?
+        data.args.args.seed = utils.generate_random_seed()  # set a new random seed
+        log_utils.print_optical_flow_info(data, redo)  # TODO output temp seed?
 
-        sample_image = call_generate(data, data.indexes.frame.i)
-        optical_tube = optical_flow_redo_tube(data, optical_flow_redo_generation)
+        sample_image = call_generate(data, self)
+        optical_tube = img_2_img_tubes.optical_flow_redo_tube(data, redo, self)
         transformed_sample_image = optical_tube(sample_image)
 
         data.args.args.seed = stored_seed  # restore stored seed
@@ -387,7 +392,7 @@ class KeyStep:
         last_diffusion_redo_index = int(data.args.anim_args.diffusion_redo)
         for n in range(0, last_diffusion_redo_index):
             print_redo_generation_info(data, n)
-            data.args.args.seed = generate_random_seed()
+            data.args.args.seed = utils.generate_random_seed()
             diffusion_redo_image = call_generate(data, self)
             diffusion_redo_image = cv2.cvtColor(np.array(diffusion_redo_image), cv2.COLOR_RGB2BGR)
             # color match on last one only
