@@ -286,8 +286,12 @@ class RenderData:
         self.update_mask_image(step, data.mask)
 
         if len(step.tweens) > 0:
-            data.args.anim_args.cadence_flow_factor_schedule = f"0: ({len(step.tweens) + 1})"
-        print(f"cadence_flow_factor_schedule: {data.args.anim_args.cadence_flow_factor_schedule}")
+            # FIXME it's not yet working as it is supposed to
+            # data.args.anim_args.cadence_flow_factor_schedule = f"0: ({len(step.tweens) + 1})"
+            data.args.anim_args.cadence_flow_factor_schedule = f"0: (1)"
+            step.step_data.cadence_flow_factor = 1.0 / len(step.tweens)
+            # print(f"cadence_flow_factor: {step.step_data.cadence_flow_factor}")
+            # print(f"cadence_flow_factor_schedule: {data.args.anim_args.cadence_flow_factor_schedule}")
 
         self.animation_keys = AnimationKeys.from_args(self.args, self.parseq_adapter, self.seed)
         opt_utils.setup(self, step.schedule)

@@ -17,6 +17,13 @@ class KeyIndexDistribution(Enum):
         return self.value
 
     @staticmethod
+    def from_UI_tab(data):
+        is_uniform_with_parseq = data.args.anim_args.neocore_key_index_distribution == "Uniform with Parseq"
+        return KeyIndexDistribution.UNIFORM_WITH_PARSEQ \
+            if is_uniform_with_parseq \
+            else KeyIndexDistribution.PARSEQ_ONLY
+
+    @staticmethod
     def default():
         return KeyIndexDistribution.PARSEQ_ONLY  # same as UNIFORM_SPACING, if no Parseq keys are present.
 
@@ -65,15 +72,13 @@ class KeyIndexDistribution(Enum):
         # Insert parseq keyframes while maintaining keyframe count
         for current_frame in shifted_parseq_frames:
             if current_frame not in key_frames_set:
-                # Find the closest index in the set to replace
-                closest_index = min(key_frames_set, key=lambda x: abs(x - current_frame))
+                # Find the closest index in the set to replace (1st and last frame excluded)
+                closest_index = min(list(key_frames_set)[1:-1], key=lambda x: abs(x - current_frame))
                 key_frames_set.remove(closest_index)
                 key_frames_set.add(current_frame)
 
         key_frames = list(key_frames_set)
         key_frames.sort()
-        #key_frames[0] = start_index + 1  # Enforce first index
-        #key_frames[-1] = max_frames  # Enforce last index
         assert len(key_frames) == num_key_steps
         return key_frames
 

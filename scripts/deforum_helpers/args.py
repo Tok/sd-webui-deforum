@@ -703,7 +703,8 @@ def DeforumAnimArgs():
             "info": "",
         },
         "hybrid_comp_mask_auto_contrast": False,
-        "hybrid_comp_save_extra_frames": False
+        "hybrid_comp_save_extra_frames": False,
+        "neocore_key_index_distribution": "Parseq Only"
     }
 
 def DeforumArgs():

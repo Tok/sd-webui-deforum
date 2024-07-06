@@ -32,7 +32,7 @@ class AnimationMode:
             self.raft_model.delete_model()
 
     @staticmethod
-    def has_video_input(anim_args) -> bool:
+    def _has_video_input(anim_args) -> bool:
         return AnimationMode._is_2d_or_3d_mode(anim_args) and AnimationMode._is_using_hybrid_frames(anim_args)
 
     @staticmethod
@@ -87,7 +87,10 @@ class AnimationMode:
         # path required by hybrid functions, even if hybrid_comp_save_extra_frames is False
         hybrid_input_files: Any = os.path.join(sa.args.outdir, 'hybridframes')
         return AnimationMode(
-            AnimationMode.has_video_input(sa.anim_args), AnimationMode.initial_hybrid_files(sa),
-            hybrid_input_files, None, keep_3d_models_in_vram(sa),
+            AnimationMode._has_video_input(sa.anim_args),
+            AnimationMode.initial_hybrid_files(sa),
+            hybrid_input_files,
+            None,
+            keep_3d_models_in_vram(sa),
             AnimationMode.load_depth_model_if_active(sa.args, sa.anim_args, sa.opts),
             AnimationMode.load_raft_if_active(sa.anim_args, sa.args))

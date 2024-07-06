@@ -39,39 +39,22 @@ def run_render_animation(data: RenderData):
     _ = data.turbo.find_start(data)  # called because it sets up step vars
     start_index = 0
     max_frames = data.args.anim_args.max_frames
-
-    key_steps = KeyStep.create_all_steps(data, start_index, KeyIndexDistribution.PARSEQ_ONLY)
+    key_steps = KeyStep.create_all_steps(data, start_index, KeyIndexDistribution.from_UI_tab(data))
     for key_step in key_steps:
-        # Check if resume
-        filename = filename_utils.frame_filename(data, key_step.i)
-        full_path = Path(data.output_directory) / filename
-        is_file_existing = os.path.exists(full_path)
-        if is_file_existing:
-            log_utils.warn(f"Frame {filename} exists, skipping to next key frame.")
-            key_step.render_data.args.args.seed = key_step.next_seed()
+        if is_resume(data, key_step):
             continue
 
         memory_utils.handle_med_or_low_vram_before_step(data)
         web_ui_utils.update_job(data)
 
-        is_step_with_tweens = len(key_step.tweens) > 0
-        if is_step_with_tweens:  # emit tweens
-            # setup variable pseudo cadence
-            data.parseq_adapter.cadence = len(key_step.tweens)
-            data.parseq_adapter.a1111_cadence = len(key_step.tweens)
-            data.args.anim_args.diffusion_cadence = len(key_step.tweens)
-            data.args.anim_args.optical_flow_cadence = len(key_step.tweens)
-            data.args.anim_args.cadence_flow_factor_schedule = len(key_step.tweens)
-            # data.parseq_adapter.print_parseq_table()
-
+        is_emit_tweens = len(key_step.tweens) > 0
+        if is_emit_tweens:
+            setup_pseudo_cadence(data, len(key_step.tweens))
             log_utils.print_tween_frame_from_to_info(key_step)
             grayscale_tube = img_2_img_tubes.conditional_force_tween_to_grayscale_tube
             overlay_mask_tube = img_2_img_tubes.conditional_add_overlay_mask_tube
-            tq = tqdm(key_step.tweens, position=1, desc="Tweens progress", file=progress_print_out,
-                      disable=cmd_opts.disable_console_progressbars, leave=False, colour='#FFA468')
-            # FIXME disable progress bar is verbose console output is activated:
-            # tq = key_step.tweens
-            [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube) for tween in tq]
+            tweens = tweens_with_progress(key_step)
+            [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube) for tween in tweens]
 
         log_utils.print_animation_frame_info(key_step.i, max_frames)
         key_step.maybe_write_frame_subtitle()
@@ -85,9 +68,9 @@ def run_render_animation(data: RenderData):
             log_utils.print_warning_generate_returned_no_image()
             break
 
-        # TODO move check
         if type(image) is not PIL.Image.Image:  # check is required when resuming from timestring
             image = img_2_img_tubes.conditional_frame_transformation_tube(key_step)(image)
+
         key_step.render_data.images.color_match = img_2_img_tubes.conditional_color_match_tube(key_step)(image)
 
         key_step.progress_and_save(image)
@@ -97,4 +80,32 @@ def run_render_animation(data: RenderData):
 
         key_step.update_render_preview()
         web_ui_utils.update_status_tracker(key_step.render_data)
-        key_step.render_data.animation_mode.unload_raft_and_depth_model()
+
+    data.animation_mode.unload_raft_and_depth_model()
+
+
+def is_resume(data, key_step):
+    filename = filename_utils.frame_filename(data, key_step.i)
+    full_path = Path(data.output_directory) / filename
+    is_file_existing = os.path.exists(full_path)
+    if is_file_existing:
+        log_utils.warn(f"Frame {filename} exists, skipping to next key frame.")
+        key_step.render_data.args.args.seed = key_step.next_seed()
+    return is_file_existing
+
+
+def setup_pseudo_cadence(data, value):
+    data.parseq_adapter.cadence = value
+    data.parseq_adapter.a1111_cadence = value
+    data.args.anim_args.diffusion_cadence = value
+    data.args.anim_args.optical_flow_cadence = value
+    data.args.anim_args.cadence_flow_factor_schedule = value
+    # data.parseq_adapter.print_parseq_table()
+
+
+def tweens_with_progress(key_step):
+    # only use tween progress bar when extra console output (aka "dev mode") is disabled.
+    is_not_verbose = not opts.data.get("deforum_debug_mode_enabled", False)
+    return tqdm(key_step.tweens, position=1, desc="Tweens progress", file=progress_print_out,
+                disable=cmd_opts.disable_console_progressbars, leave=False, colour='#FFA468') \
+        if is_not_verbose else key_step.tweens
