@@ -111,7 +111,9 @@ class Turbo:
             if tween_step.cadence_flow is not None:
                 self.advance_optical_flow(tween_step)
 
-            flow_factor = 100.0 / len(last_step.tweens)
+            # flow_factor = 1.0 / (last_step.i - tween_step.i() + 1)
+            # flow_factor = 100.0 / len(last_step.tweens)
+            flow_factor = 100.0
             if tween_step.cadence_flow is not None:
                 self.next.image = image_transform_optical_flow(self.next.image, -tween_step.cadence_flow, flow_factor)
 
@@ -120,9 +122,9 @@ class Turbo:
             return self.next.image
         if tween_step.cadence_flow is not None:
             # TODO Calculate all increments before running the generation (and try to avoid abs->rel->abs conversions).
-            # temp_flow = abs_flow_to_rel_flow(tween_step.cadence_flow, data.width(), data.height())
-            # new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, temp_flow, None)
-            new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, self.prev.image, None)
+            temp_flow = abs_flow_to_rel_flow(tween_step.cadence_flow, data.width(), data.height())
+            new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, temp_flow, None)
+            # new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, self.prev.image, None)
             tween_step.cadence_flow = new_flow
             abs_flow = rel_flow_to_abs_flow(tween_step.cadence_flow, data.width(), data.height())
             tween_step.cadence_flow_inc = abs_flow * tween_step.tween

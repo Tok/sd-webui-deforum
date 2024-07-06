@@ -277,7 +277,7 @@ class RenderData:
     def prepare_generation(self, data, step, i):
         # TODO move all of this to Step?
         if i > self.args.anim_args.max_frames - 1:
-            return  # FIXME? sus
+            return
         self.update_some_args_for_current_step(step, i)
         self.update_seed_and_checkpoint_for_current_step(i)
         self.update_sub_seed_schedule_for_current_step(i)
@@ -289,9 +289,9 @@ class RenderData:
             # FIXME it's not yet working as it is supposed to
             # data.args.anim_args.cadence_flow_factor_schedule = f"0: ({len(step.tweens) + 1})"
             data.args.anim_args.cadence_flow_factor_schedule = f"0: (1)"
-            step.step_data.cadence_flow_factor = 1.0 / len(step.tweens)
-            # print(f"cadence_flow_factor: {step.step_data.cadence_flow_factor}")
             # print(f"cadence_flow_factor_schedule: {data.args.anim_args.cadence_flow_factor_schedule}")
+            # step.step_data.cadence_flow_factor = 1.0 / len(step.tweens)
+            # print(f"cadence_flow_factor: {step.step_data.cadence_flow_factor}")
 
         self.animation_keys = AnimationKeys.from_args(self.args, self.parseq_adapter, self.seed)
         opt_utils.setup(self, step.schedule)
