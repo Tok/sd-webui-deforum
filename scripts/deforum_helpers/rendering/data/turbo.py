@@ -119,10 +119,10 @@ class Turbo:
         if not data.animation_mode.is_raft_active():
             return self.next.image
         if tween_step.cadence_flow is not None:
-            log_utils.debug("do_optical_flow_cadence_after_animation_warping")
-            # TODO Calculate all increments before running the generation (and try to avoid abs->rel->abc conversions).
-            temp_flow = abs_flow_to_rel_flow(tween_step.cadence_flow, data.width(), data.height())
-            new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, temp_flow, self.depth)
+            # TODO Calculate all increments before running the generation (and try to avoid abs->rel->abs conversions).
+            # temp_flow = abs_flow_to_rel_flow(tween_step.cadence_flow, data.width(), data.height())
+            # new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, temp_flow, None)
+            new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, self.prev.image, None)
             tween_step.cadence_flow = new_flow
             abs_flow = rel_flow_to_abs_flow(tween_step.cadence_flow, data.width(), data.height())
             tween_step.cadence_flow_inc = abs_flow * tween_step.tween
