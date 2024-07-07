@@ -78,9 +78,12 @@ In UNIFORM_WITH_PARSEQ mode, a cadence setting of "10" means "about 10".
 
 ## Examples
 
-### Mark Fell - multistability 2-b
+### Parseq Synchronized Music Video
 This music video was **generated in less than only 92 minutes on a 4070**, directly at 60 FPS and with a resolution of 1280x720.
 It contains 6694 frames of which only 913 were actually diffused, but in full sync with Parseq. 
 Calculated pseudo cadence is 6694 / 913 = 7.33. More details in video description.
 
-[![Video Title](https://img.youtube.com/vi/K-9V5Tntck4/maxresdefault.jpg)](https://www.youtube.com/watch?v=K-9V5Tntck4)
+"neocore_key_index_distribution": "Parseq Only"
+
+#### Mark Fell - multistability 2-b
+[![Mark Fell - multistability 2-b](https://img.youtube.com/vi/K-9V5Tntck4/maxresdefault.jpg)](https://www.youtube.com/watch?v=K-9V5Tntck4 "Click to watch on YouTube")
