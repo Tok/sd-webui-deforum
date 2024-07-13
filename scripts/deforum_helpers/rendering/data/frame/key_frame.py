@@ -6,8 +6,8 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from . import KeyIndexDistribution
-from .tween_step import Tween
+from . import KeyFrameDistribution
+from .tween_frame import Tween
 from ..render_data import RenderData
 from ..schedule import Schedule
 from ... import img_2_img_tubes
@@ -27,7 +27,7 @@ from ....seed import next_seed
 
 
 @dataclass(init=True, frozen=False, repr=False, eq=False)
-class KeyStepData:
+class KeyFrameData:
     noise: Any = None
     strength: Any = None
     scale: Any = None
@@ -52,7 +52,7 @@ class KeyStepData:
     @staticmethod
     def create(deform_keys, i):
         keys = deform_keys
-        return KeyStepData(
+        return KeyFrameData(
             keys.noise_schedule_series[i],
             keys.strength_schedule_series[i],
             keys.cfg_scale_schedule_series[i],
@@ -63,7 +63,7 @@ class KeyStepData:
             keys.threshold_schedule_series[i],
             keys.cadence_flow_factor_schedule_series[i],
             keys.redo_flow_factor_schedule_series[i],
-            KeyStepData._hybrid_comp_args(keys, i))
+            KeyFrameData._hybrid_comp_args(keys, i))
 
     @staticmethod
     def _hybrid_comp_args(keys, i):
@@ -77,10 +77,10 @@ class KeyStepData:
 
 
 @dataclass(init=True, frozen=False, repr=False, eq=False)
-class KeyStep:
+class KeyFrame:
     """Key steps are the steps for frames that actually get diffused (as opposed to tween frame steps)."""
     i: int
-    step_data: KeyStepData
+    step_data: KeyFrameData
     render_data: RenderData
     schedule: Schedule
     depth: Any  # TODO try to init early, then freeze class
@@ -90,70 +90,8 @@ class KeyStep:
     tweens: List[Tween]
     tween_values: List[float]
 
-    @staticmethod
-    def create(data: RenderData):
-        step_data = KeyStepData.create(data.animation_keys.deform_keys, data.indexes.frame.i)
-        schedule = Schedule.create(data, data.indexes.frame.i, data.args.anim_args, data.args.args)
-        return KeyStep(0, step_data, data, schedule, None, None, "", 0, list(), list())
-
-    @staticmethod
-    def create_all_steps(data, start_index, index_dist: KeyIndexDistribution = KeyIndexDistribution.default()):
-        """Creates a list of key steps for the entire animation."""
-        max_frames = data.args.anim_args.max_frames
-
-        num_key_steps = 1 + int((max_frames - start_index) / data.cadence())
-        if data.parseq_adapter.use_parseq and index_dist is KeyIndexDistribution.PARSEQ_ONLY:
-            num_key_steps = len(data.parseq_adapter.parseq_json["keyframes"])
-
-        key_steps = [KeyStep.create(data) for _ in range(0, num_key_steps)]
-        actual_num_key_steps = len(key_steps)
-        #data.args.anim_args.max_frames = actual_num_key_steps
-        #max_frames = actual_num_key_steps
-
-        key_steps = KeyStep._recalculate_and_check_tweens(  # TODO remove actual_num_key_steps arg
-            key_steps, start_index, max_frames, actual_num_key_steps, data.parseq_adapter, index_dist)
-        log_utils.print_tween_step_creation_info(key_steps, index_dist)
-
-        return key_steps
-
-    @staticmethod
-    def _recalculate_and_check_tweens(key_steps, start_index, max_frames, num_key_steps,
-                                      parseq_adapter, index_distribution):
-        key_indices: List[int] = index_distribution.calculate(start_index, max_frames, num_key_steps, parseq_adapter)
-        for i, key_step in enumerate(key_indices):
-            key_steps[i].i = key_indices[i]
-
-        key_steps = KeyStep._add_tweens_to_key_steps(key_steps)
-        log_utils.print_key_step_debug_info_if_verbose(key_steps)
-
-        # The number of generated tweens depends on index since last key-frame. The last tween has the same
-        # index as the key_step it belongs to and is meant to replace the unprocessed original key frame.
-        # TODO? make unit tests instead of asserts...
-        # total_count = len(key_steps) + sum(len(key_step.tweens) - 1 for key_step in key_steps)
-        # log_utils.info(f"total_count {total_count} len(key_steps) {len(key_steps)} max_frames {max_frames}")
-        # assert total_count == len(key_steps) + max_frames  # every key frame except the 1st has a tween double.
-
-        assert len(key_steps) == num_key_steps
-        assert key_steps[0].tweens == []  # 1st key step has no tweens
-        assert key_steps[0].i == 1
-        if index_distribution != KeyIndexDistribution.PARSEQ_ONLY:  # just using however many key frames Parseq defines.
-            assert key_steps[-1].i == max_frames
-
-        return key_steps
-
-    @staticmethod
-    def _add_tweens_to_key_steps(key_steps):
-        log_utils.info(f"Adding tweens to {len(key_steps)} keyframes...")
-        for i in range(1, len(key_steps)):  # skipping 1st key frame
-            data = key_steps[i].render_data
-            from_i = key_steps[i - 1].i
-            to_i = key_steps[i].i
-            tweens, values = Tween.create_in_between_steps(key_steps, i, data, from_i, to_i)
-            log_utils.debug(f"Creating {len(tweens)} tweens ({from_i}->{to_i}) for key frame at {key_steps[i].i}")
-            key_steps[i].tweens = tweens
-            key_steps[i].tween_values = values
-            key_steps[i].render_data.indexes.update_tween_start(data.turbo)
-        return key_steps
+    def has_tween_frames(self):
+        return len(self.tweens) > 0
 
     def is_optical_flow_redo_before_generation(self, optical_flow_redo_generation, images):
         has_flow_redo = optical_flow_redo_generation != 'None'
@@ -211,53 +149,6 @@ class KeyStep:
             vals = mask.noise_vals
             data.args.root.noise_mask = call_compose_mask_with_check(data, seq, vals, contrast_image)
         return call_add_noise(data, self, image)
-
-    @staticmethod
-    def apply_color_matching(data: RenderData, image):
-        return apply_color_coherence(image, data) if data.has_color_coherence() else image
-
-    @staticmethod
-    def apply_color_coherence(image, data: RenderData):
-        if data.images.color_match is None:
-            # Initialize color_match for next iteration with current image, but don't do anything yet.
-            if image is not None:
-                data.images.color_match = image.copy()
-            return image
-        return maintain_colors(image, data.images.color_match, data.args.anim_args.color_coherence)
-
-    @staticmethod
-    def transform_to_grayscale_if_active(data: RenderData, image):
-        if data.args.anim_args.color_force_grayscale:
-            grayscale = cv2.cvtColor(data.images.previous, cv2.COLOR_BGR2GRAY)
-            return cv2.cvtColor(grayscale, cv2.COLOR_GRAY2BGR)
-        return image
-
-    @staticmethod
-    def apply_hybrid_motion_ransac_transform(data: RenderData, image):
-        """hybrid video motion - warps `images.previous` to match motion, usually to prepare for compositing"""
-        motion = data.args.anim_args.hybrid_motion
-        if motion in ['Affine', 'Perspective']:
-            last_i = data.indexes.frame.i - 1
-            reference_images = data.images
-            matrix = call_get_matrix_for_hybrid_motion_prev(data, last_i, reference_images.previous) \
-                if data.args.anim_args.hybrid_motion_use_prev_img \
-                else call_get_matrix_for_hybrid_motion(data, last_i)
-            return image_transform_ransac(image, matrix, data.args.anim_args.hybrid_motion)
-        return image
-
-    @staticmethod
-    def apply_hybrid_motion_optical_flow(data: RenderData, image):
-        motion = data.args.anim_args.hybrid_motion
-        if motion in ['Optical Flow']:
-            last_i = data.indexes.frame.i - 1
-            reference_images = data.images
-            flow = call_get_flow_for_hybrid_motion_prev(data, last_i, reference_images.previous) \
-                if data.args.anim_args.hybrid_motion_use_prev_img \
-                else call_get_flow_for_hybrid_motion(data, last_i)
-            transformed = image_transform_optical_flow(images.previous, flow, step.step_data.flow_factor())
-            data.animation_mode.prev_flow = flow  # side effect
-            return transformed
-        return image
 
     def create_color_match_for_video(self):
         data = self.render_data
@@ -388,3 +279,113 @@ class KeyStep:
                 diffusion_redo_image = maintain_colors(data.images.previous, data.images.color_match, mode)
             data.args.args.seed = stored_seed
             data.args.root.init_sample = Image.fromarray(cv2.cvtColor(diffusion_redo_image, cv2.COLOR_BGR2RGB))
+
+    @staticmethod
+    def create(data: RenderData):
+        step_data = KeyFrameData.create(data.animation_keys.deform_keys, data.indexes.frame.i)
+        schedule = Schedule.create(data, data.indexes.frame.i, data.args.anim_args, data.args.args)
+        return KeyFrame(0, step_data, data, schedule, None, None, "", 0, list(), list())
+
+    @staticmethod
+    def apply_color_matching(data: RenderData, image):
+        return apply_color_coherence(image, data) if data.has_color_coherence() else image
+
+    @staticmethod
+    def apply_color_coherence(image, data: RenderData):
+        if data.images.color_match is None:
+            # Initialize color_match for next iteration with current image, but don't do anything yet.
+            if image is not None:
+                data.images.color_match = image.copy()
+            return image
+        return maintain_colors(image, data.images.color_match, data.args.anim_args.color_coherence)
+
+    @staticmethod
+    def transform_to_grayscale_if_active(data: RenderData, image):
+        if data.args.anim_args.color_force_grayscale:
+            grayscale = cv2.cvtColor(data.images.previous, cv2.COLOR_BGR2GRAY)
+            return cv2.cvtColor(grayscale, cv2.COLOR_GRAY2BGR)
+        return image
+
+    @staticmethod
+    def apply_hybrid_motion_ransac_transform(data: RenderData, image):
+        """hybrid video motion - warps `images.previous` to match motion, usually to prepare for compositing"""
+        motion = data.args.anim_args.hybrid_motion
+        if motion in ['Affine', 'Perspective']:
+            last_i = data.indexes.frame.i - 1
+            reference_images = data.images
+            matrix = call_get_matrix_for_hybrid_motion_prev(data, last_i, reference_images.previous) \
+                if data.args.anim_args.hybrid_motion_use_prev_img \
+                else call_get_matrix_for_hybrid_motion(data, last_i)
+            return image_transform_ransac(image, matrix, data.args.anim_args.hybrid_motion)
+        return image
+
+    @staticmethod
+    def apply_hybrid_motion_optical_flow(data: RenderData, image):
+        motion = data.args.anim_args.hybrid_motion
+        if motion in ['Optical Flow']:
+            last_i = data.indexes.frame.i - 1
+            reference_images = data.images
+            flow = call_get_flow_for_hybrid_motion_prev(data, last_i, reference_images.previous) \
+                if data.args.anim_args.hybrid_motion_use_prev_img \
+                else call_get_flow_for_hybrid_motion(data, last_i)
+            transformed = image_transform_optical_flow(images.previous, flow, step.step_data.flow_factor())
+            data.animation_mode.prev_flow = flow  # side effect
+            return transformed
+        return image
+
+    @staticmethod
+    def create_all_steps(data, start_index, index_dist: KeyFrameDistribution = KeyFrameDistribution.default()):
+        """Creates a list of key steps for the entire animation."""
+        num_key_steps = 1 + int((data.args.anim_args.max_frames - start_index) / data.cadence())
+        if data.parseq_adapter.use_parseq and index_dist is KeyFrameDistribution.PARSEQ_ONLY:
+            num_key_steps = len(data.parseq_adapter.parseq_json["keyframes"])
+
+        key_steps = [KeyFrame.create(data) for _ in range(0, num_key_steps)]
+        actual_num_key_steps = len(key_steps)
+
+        recalculated_key_steps = KeyFrame._recalculate_and_check_tweens(data, key_steps,
+                                                                        start_index, actual_num_key_steps,
+                                                                        data.parseq_adapter, index_dist)
+        log_utils.print_tween_step_creation_info(key_steps, index_dist)
+
+        return recalculated_key_steps
+
+    @staticmethod
+    def _recalculate_and_check_tweens(data, key_steps, start_index, num_key_steps,
+                                      parseq_adapter, index_distribution):
+        max_frames = data.args.anim_args.max_frames
+        key_indices: List[int] = index_distribution.calculate(start_index, max_frames, num_key_steps, parseq_adapter)
+        for i, key_step in enumerate(key_indices):
+            key_steps[i].i = key_indices[i]
+
+        key_steps = KeyFrame._add_tweens_to_key_steps(key_steps)
+        log_utils.print_key_step_debug_info_if_verbose(key_steps)
+
+        # The number of generated tweens depends on index since last key-frame. The last tween has the same
+        # index as the key_step it belongs to and is meant to replace the unprocessed original key frame.
+        # TODO? make unit tests instead of asserts...
+        # total_count = len(key_steps) + sum(len(key_step.tweens) - 1 for key_step in key_steps)
+        # log_utils.info(f"total_count {total_count} len(key_steps) {len(key_steps)} max_frames {max_frames}")
+        # assert total_count == len(key_steps) + max_frames  # every key frame except the 1st has a tween double.
+
+        assert len(key_steps) == num_key_steps
+        assert key_steps[0].tweens == []  # 1st key step has no tweens
+        assert key_steps[0].i == 1
+        if index_distribution != KeyFrameDistribution.PARSEQ_ONLY:  # just using however many key frames Parseq defines.
+            assert key_steps[-1].i == max_frames
+
+        return key_steps
+
+    @staticmethod
+    def _add_tweens_to_key_steps(key_steps):
+        log_utils.info(f"Adding tweens to {len(key_steps)} keyframes...")
+        for i in range(1, len(key_steps)):  # skipping 1st key frame
+            data = key_steps[i].render_data
+            from_i = key_steps[i - 1].i
+            to_i = key_steps[i].i
+            tweens, values = Tween.create_in_between_steps(key_steps, i, data, from_i, to_i)
+            log_utils.debug(f"Creating {len(tweens)} tweens ({from_i}->{to_i}) for key frame at {key_steps[i].i}")
+            key_steps[i].tweens = tweens
+            key_steps[i].tween_values = values
+            key_steps[i].render_data.indexes.update_tween_start(data.turbo)
+        return key_steps

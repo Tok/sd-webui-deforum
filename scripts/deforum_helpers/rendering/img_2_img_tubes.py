@@ -5,7 +5,7 @@ import numpy as np
 from cv2.typing import MatLike
 
 from .data.render_data import RenderData
-from .data.step.key_step import KeyStep
+from .data.frame.key_frame import KeyFrame
 from .util.call.hybrid import call_get_flow_from_images, call_hybrid_composite
 from .util.fun_utils import tube
 from ..colors import maintain_colors
@@ -28,24 +28,24 @@ transformed_image = my_tube(arguments)(original_image)
 ImageTube = Callable[[MatLike], MatLike]
 
 
-def frame_transformation_tube(data: RenderData, step: KeyStep) -> ImageTube:
+def frame_transformation_tube(data: RenderData, key_frame: KeyFrame) -> ImageTube:
     # make sure `img` stays the last argument in each call.
-    return tube(lambda img: step.apply_frame_warp_transform(data, img),
-                lambda img: step.do_hybrid_compositing_before_motion(data, img),
-                lambda img: KeyStep.apply_hybrid_motion_ransac_transform(data, img),
-                lambda img: KeyStep.apply_hybrid_motion_optical_flow(data, img),
-                lambda img: step.do_normal_hybrid_compositing_after_motion(data, img),
-                lambda img: KeyStep.apply_color_matching(data, img),
-                lambda img: KeyStep.transform_to_grayscale_if_active(data, img))
+    return tube(lambda img: key_frame.apply_frame_warp_transform(data, img),
+                lambda img: key_frame.do_hybrid_compositing_before_motion(data, img),
+                lambda img: KeyFrame.apply_hybrid_motion_ransac_transform(data, img),
+                lambda img: KeyFrame.apply_hybrid_motion_optical_flow(data, img),
+                lambda img: key_frame.do_normal_hybrid_compositing_after_motion(data, img),
+                lambda img: KeyFrame.apply_color_matching(data, img),
+                lambda img: KeyFrame.transform_to_grayscale_if_active(data, img))
 
 
-def contrast_transformation_tube(data: RenderData, step: KeyStep) -> ImageTube:
-    return tube(lambda img: step.apply_scaling(img),
-                lambda img: step.apply_anti_blur(data, img))
+def contrast_transformation_tube(data: RenderData, key_frame: KeyFrame) -> ImageTube:
+    return tube(lambda img: key_frame.apply_scaling(img),
+                lambda img: key_frame.apply_anti_blur(data, img))
 
 
-def noise_transformation_tube(data: RenderData, step: KeyStep) -> ImageTube:
-    return tube(lambda img: step.apply_frame_noising(data, step, img))
+def noise_transformation_tube(data: RenderData, key_frame: KeyFrame) -> ImageTube:
+    return tube(lambda img: key_frame.apply_frame_noising(data, key_frame, img))
 
 
 def optical_flow_redo_tube(data: RenderData, optical_flow) -> ImageTube:
@@ -57,9 +57,9 @@ def optical_flow_redo_tube(data: RenderData, optical_flow) -> ImageTube:
 
 
 # Conditional Tubes (can be switched on or off by providing a Callable[Boolean] `is_do_process` predicate).
-def conditional_hybrid_video_after_generation_tube(step: KeyStep) -> ImageTube:
-    data = step.render_data
-    step_data = step.step_data
+def conditional_hybrid_video_after_generation_tube(key_frame: KeyFrame) -> ImageTube:
+    data = key_frame.render_data
+    step_data = key_frame.step_data
     return tube(lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
                 lambda img: call_hybrid_composite(data, data.indexes.frame.i, img, step_data.hybrid_comp_schedules),
                 lambda img: Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)),
@@ -78,10 +78,10 @@ def conditional_extra_color_match_tube(data: RenderData) -> ImageTube:
                 lambda: data.indexes.is_first_frame() and data.is_initialize_color_match(data.images.color_match))
 
 
-def conditional_color_match_tube(step: KeyStep) -> ImageTube:
+def conditional_color_match_tube(key_frame: KeyFrame) -> ImageTube:
     # on strength 0, set color match to generation
     return tube(lambda img: cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR),
-                is_do_process=lambda: step.render_data.is_do_color_match_conversion(step))
+                is_do_process=lambda: key_frame.render_data.is_do_color_match_conversion(key_frame))
 
 
 def conditional_force_to_grayscale_tube(data: RenderData) -> ImageTube:
@@ -107,16 +107,16 @@ def conditional_force_tween_to_grayscale_tube(data: RenderData) -> ImageTube:
 
 
 # Composite Tubes, made from other Tubes.
-def contrasted_noise_transformation_tube(data: RenderData, step: KeyStep) -> ImageTube:
+def contrasted_noise_transformation_tube(data: RenderData, key_frame: KeyFrame) -> ImageTube:
     """Combines contrast and noise transformation tubes."""
-    contrast_tube: Tube = contrast_transformation_tube(data, step)
-    noise_tube: Tube = noise_transformation_tube(data, step)
+    contrast_tube: Tube = contrast_transformation_tube(data, key_frame)
+    noise_tube: Tube = noise_transformation_tube(data, key_frame)
     return tube(lambda img: noise_tube(contrast_tube(img)))
 
 
-def conditional_frame_transformation_tube(step: KeyStep, is_tween: bool = False) -> ImageTube:
-    hybrid_tube: Tube = conditional_hybrid_video_after_generation_tube(step)
-    extra_tube: Tube = conditional_extra_color_match_tube(step.render_data)
-    gray_tube: Tube = conditional_force_to_grayscale_tube(step.render_data)
-    mask_tube: Tube = conditional_add_overlay_mask_tube(step.render_data, is_tween)
+def conditional_frame_transformation_tube(key_frame: KeyFrame, is_tween: bool = False) -> ImageTube:
+    hybrid_tube: Tube = conditional_hybrid_video_after_generation_tube(key_frame)
+    extra_tube: Tube = conditional_extra_color_match_tube(key_frame.render_data)
+    gray_tube: Tube = conditional_force_to_grayscale_tube(key_frame.render_data)
+    mask_tube: Tube = conditional_add_overlay_mask_tube(key_frame.render_data, is_tween)
     return tube(lambda img: mask_tube(gray_tube(extra_tube(hybrid_tube(img)))))

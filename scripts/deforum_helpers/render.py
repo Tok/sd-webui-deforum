@@ -23,7 +23,7 @@ from tqdm import tqdm
 
 from .rendering import img_2_img_tubes
 from .rendering.data.render_data import RenderData
-from .rendering.data.step import KeyIndexDistribution, KeyStep
+from .rendering.data.frame import KeyFrameDistribution, KeyFrame
 from .rendering.util import filename_utils, image_utils, log_utils, memory_utils, web_ui_utils
 
 
@@ -36,42 +36,42 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
 def run_render_animation(data: RenderData):
     web_ui_utils.init_job(data)
     start_index = data.turbo.find_start(data)
-    key_steps = KeyStep.create_all_steps(data, start_index, KeyIndexDistribution.from_UI_tab(data))
+    key_frames = KeyFrame.create_all_steps(data, start_index, KeyFrameDistribution.from_UI_tab(data))
 
-    for key_step in key_steps:
-        if is_resume(data, key_step):
+    for key_frame in key_frames:
+        if is_resume(data, key_frame):
             continue
 
         memory_utils.handle_med_or_low_vram_before_step(data)
         web_ui_utils.update_job(data)
 
-        if len(key_step.tweens) > 0:
-            emit_tweens(data, key_step)
+        if key_frame.has_tween_frames():
+            emit_tweens(data, key_frame)
 
-        log_utils.print_animation_frame_info(key_step.i, data.args.anim_args.max_frames)
-        key_step.maybe_write_frame_subtitle()
+        log_utils.print_animation_frame_info(key_frame.i, data.args.anim_args.max_frames)
+        key_frame.maybe_write_frame_subtitle()
 
         frame_tube = img_2_img_tubes.frame_transformation_tube
         contrasted_noise_tube = img_2_img_tubes.contrasted_noise_transformation_tube
-        key_step.prepare_generation(frame_tube, contrasted_noise_tube)
+        key_frame.prepare_generation(frame_tube, contrasted_noise_tube)
 
-        image = key_step.do_generation()
+        image = key_frame.do_generation()
         if image is None:
             log_utils.print_warning_generate_returned_no_image()
             break
 
         if not image_utils.is_PIL(image):  # check is required when resuming from timestring
-            image = img_2_img_tubes.conditional_frame_transformation_tube(key_step)(image)
+            image = img_2_img_tubes.conditional_frame_transformation_tube(key_frame)(image)
 
-        key_step.render_data.images.color_match = img_2_img_tubes.conditional_color_match_tube(key_step)(image)
+        key_frame.render_data.images.color_match = img_2_img_tubes.conditional_color_match_tube(key_frame)(image)
 
-        key_step.progress_and_save(image)
+        key_frame.progress_and_save(image)
         state.assign_current_image(image)
 
-        key_step.render_data.args.args.seed = key_step.next_seed()
+        key_frame.render_data.args.args.seed = key_frame.next_seed()
 
-        key_step.update_render_preview()
-        web_ui_utils.update_status_tracker(key_step.render_data)
+        key_frame.update_render_preview()
+        web_ui_utils.update_status_tracker(key_frame.render_data)
 
     data.animation_mode.unload_raft_and_depth_model()
 
