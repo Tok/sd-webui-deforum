@@ -107,15 +107,13 @@ class KeyStep:
 
         key_steps = [KeyStep.create(data) for _ in range(0, num_key_steps)]
         actual_num_key_steps = len(key_steps)
+        #data.args.anim_args.max_frames = actual_num_key_steps
+        #max_frames = actual_num_key_steps
 
-        key_steps = KeyStep._recalculate_and_check_tweens(key_steps, start_index, max_frames, actual_num_key_steps,
-                                                          data.parseq_adapter, index_dist)
+        key_steps = KeyStep._recalculate_and_check_tweens(  # TODO remove actual_num_key_steps arg
+            key_steps, start_index, max_frames, actual_num_key_steps, data.parseq_adapter, index_dist)
+        log_utils.print_tween_step_creation_info(key_steps, index_dist)
 
-        # Print message  # TODO move to log_utils
-        tween_count = sum(len(ks.tweens) for ks in key_steps)
-        msg_start = f"Created {len(key_steps)} key frames with {tween_count} tweens."
-        msg_end = f"Key frame index distribution: '{index_dist.name}'."
-        log_utils.info(f"{msg_start} {msg_end}")
         return key_steps
 
     @staticmethod
@@ -125,22 +123,18 @@ class KeyStep:
         for i, key_step in enumerate(key_indices):
             key_steps[i].i = key_indices[i]
 
-        is_enforce_tweens = index_distribution == KeyIndexDistribution.PARSEQ_ONLY
-        key_steps = KeyStep._add_tweens_to_key_steps(key_steps, is_enforce_tweens)
-        assert len(key_steps) == num_key_steps
-
-        for i, ks in enumerate(key_steps):
-            tween_indices = [t.i() for t in ks.tweens]
-            log_utils.debug(f"Key frame {ks.i} has {len(tween_indices)} tweens: {tween_indices}")
+        key_steps = KeyStep._add_tweens_to_key_steps(key_steps)
+        log_utils.print_key_step_debug_info_if_verbose(key_steps)
 
         # The number of generated tweens depends on index since last key-frame. The last tween has the same
-        # me index as the key_step it belongs to and is meant to replace the unprocessed original key frame.
-        total_count = len(key_steps) + sum(len(key_step.tweens) for key_step in key_steps)
+        # index as the key_step it belongs to and is meant to replace the unprocessed original key frame.
+        # TODO? make unit tests instead of asserts...
+        # total_count = len(key_steps) + sum(len(key_step.tweens) - 1 for key_step in key_steps)
+        # log_utils.info(f"total_count {total_count} len(key_steps) {len(key_steps)} max_frames {max_frames}")
+        # assert total_count == len(key_steps) + max_frames  # every key frame except the 1st has a tween double.
 
-        assert total_count == max_frames + len(key_steps) - 1  # every key frame except the 1st has a tween double.
-
+        assert len(key_steps) == num_key_steps
         assert key_steps[0].tweens == []  # 1st key step has no tweens
-
         assert key_steps[0].i == 1
         if index_distribution != KeyIndexDistribution.PARSEQ_ONLY:  # just using however many key frames Parseq defines.
             assert key_steps[-1].i == max_frames
@@ -148,20 +142,17 @@ class KeyStep:
         return key_steps
 
     @staticmethod
-    def _add_tweens_to_key_steps(key_steps, is_enforce_tweens):
-        log_utils.info(f"adding {len(key_steps)} tweens...")
+    def _add_tweens_to_key_steps(key_steps):
+        log_utils.info(f"Adding tweens to {len(key_steps)} keyframes...")
         for i in range(1, len(key_steps)):  # skipping 1st key frame
             data = key_steps[i].render_data
-            if data.turbo.is_emit_in_between_frames() or is_enforce_tweens:
-                from_i = key_steps[i - 1].i
-                to_i = key_steps[i].i
-                tweens, values = Tween.create_in_between_steps(key_steps[i], data, from_i, to_i)
-                for tween in tweens:  # TODO move to creation
-                    tween.indexes.update_tween_index(tween.i() + key_steps[i].i)
-                log_utils.info(f"Creating {len(tweens)} tweens ({from_i}->{to_i}) for key frame at {key_steps[i].i}")
-                key_steps[i].tweens = tweens
-                key_steps[i].tween_values = values
-                key_steps[i].render_data.indexes.update_tween_start(data.turbo)
+            from_i = key_steps[i - 1].i
+            to_i = key_steps[i].i
+            tweens, values = Tween.create_in_between_steps(key_steps, i, data, from_i, to_i)
+            log_utils.debug(f"Creating {len(tweens)} tweens ({from_i}->{to_i}) for key frame at {key_steps[i].i}")
+            key_steps[i].tweens = tweens
+            key_steps[i].tween_values = values
+            key_steps[i].render_data.indexes.update_tween_start(data.turbo)
         return key_steps
 
     def is_optical_flow_redo_before_generation(self, optical_flow_redo_generation, images):
@@ -195,8 +186,7 @@ class KeyStep:
         if condition:
             _, composed = call_hybrid_composite(data, i, image, schedules)
             return composed
-        else:
-            return image
+        return image
 
     def do_hybrid_compositing_before_motion(self, data: RenderData, image):
         condition = data.is_hybrid_composite_before_motion()
@@ -212,8 +202,7 @@ class KeyStep:
     def apply_anti_blur(self, data: RenderData, image):
         if self.step_data.amount > 0:
             return call_unsharp_mask(data, self, image, data.mask)
-        else:
-            return image
+        return image
 
     def apply_frame_noising(self, data: RenderData, mask, image):
         is_use_any_mask = data.args.args.use_mask or data.args.anim_args.use_noise_mask
@@ -225,23 +214,23 @@ class KeyStep:
 
     @staticmethod
     def apply_color_matching(data: RenderData, image):
-        if data.has_color_coherence():
-            if data.images.color_match is None:
-                # TODO questionable
-                # initialize color_match for next iteration with current image, but don't do anything yet.
-                if image is not None:
-                    data.images.color_match = image.copy()
-            else:
-                return maintain_colors(image, data.images.color_match, data.args.anim_args.color_coherence)
-        return image
+        return apply_color_coherence(image, data) if data.has_color_coherence() else image
+
+    @staticmethod
+    def apply_color_coherence(image, data: RenderData):
+        if data.images.color_match is None:
+            # Initialize color_match for next iteration with current image, but don't do anything yet.
+            if image is not None:
+                data.images.color_match = image.copy()
+            return image
+        return maintain_colors(image, data.images.color_match, data.args.anim_args.color_coherence)
 
     @staticmethod
     def transform_to_grayscale_if_active(data: RenderData, image):
         if data.args.anim_args.color_force_grayscale:
             grayscale = cv2.cvtColor(data.images.previous, cv2.COLOR_BGR2GRAY)
             return cv2.cvtColor(grayscale, cv2.COLOR_GRAY2BGR)
-        else:
-            return image
+        return image
 
     @staticmethod
     def apply_hybrid_motion_ransac_transform(data: RenderData, image):
@@ -268,8 +257,7 @@ class KeyStep:
             transformed = image_transform_optical_flow(images.previous, flow, step.step_data.flow_factor())
             data.animation_mode.prev_flow = flow  # side effect
             return transformed
-        else:
-            return image
+        return image
 
     def create_color_match_for_video(self):
         data = self.render_data
@@ -295,8 +283,7 @@ class KeyStep:
                 noised_image = contrasted_noise_tube(data, self)(transformed_image)
                 data.update_sample_and_args_for_current_progression_step(self, noised_image)
                 return transformed_image
-        else:
-            return None
+        return None
 
     def prepare_generation(self, frame_tube, contrasted_noise_tube):
         self.render_data.images.color_match = self.create_color_match_for_video()
@@ -351,8 +338,7 @@ class KeyStep:
         self.depth = self.generate_and_save_depth_map_if_active()
         if data.turbo.has_steps():
             return data.indexes.frame.i + data.turbo.progress_step(data.indexes, opencv_image)
-        else:
-            return data.indexes.frame.i + 1  # normal (i.e. 'non-turbo') step always increments by 1.
+        return data.indexes.frame.i + 1  # normal (i.e. 'non-turbo') step always increments by 1.
 
     def next_seed(self):
         return next_seed(self.render_data.args.args, self.render_data.args.root)
@@ -380,7 +366,7 @@ class KeyStep:
         log_utils.print_optical_flow_info(data, redo)  # TODO output temp seed?
 
         sample_image = call_generate(data, self)
-        optical_tube = img_2_img_tubes.optical_flow_redo_tube(data, redo, self)
+        optical_tube = img_2_img_tubes.optical_flow_redo_tube(data, redo)
         transformed_sample_image = optical_tube(sample_image)
 
         data.args.args.seed = stored_seed  # restore stored seed

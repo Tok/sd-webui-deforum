@@ -78,8 +78,7 @@ class AnimationMode:
             # may cause side effects on args and anim_args.
             _, __, init_hybrid_input_files = hybrid_generation(sa.args, sa.anim_args, sa.root)
             return init_hybrid_input_files
-        else:
-            return []
+        return []
 
     @staticmethod
     def from_args(step_args):

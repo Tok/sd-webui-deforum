@@ -7,6 +7,8 @@ import numexpr
 import numpy as np
 import pandas as pd
 from PIL import Image
+# noinspection PyUnresolvedReferences
+from modules.shared import opts
 
 from .anim import AnimationKeys, AnimationMode
 from .images import Images
@@ -57,7 +59,7 @@ class RenderData:
     is_use_mask: bool
 
     @staticmethod
-    def create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root) -> 'RenderData':
+    def create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, root) -> 'RenderData':
         ri_args = RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
 
         output_directory = args.outdir

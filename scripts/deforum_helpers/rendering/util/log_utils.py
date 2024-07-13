@@ -1,5 +1,8 @@
 from ... import generate
 
+# noinspection PyUnresolvedReferences
+from modules.shared import opts
+
 COLOUR_RGB = '\x1b[38;2;%d;%d;%dm'
 RED = "\033[31m"
 ORANGE = "\033[38;5;208m"
@@ -18,6 +21,11 @@ UNDERLINE = "\033[4m"
 RESET = "\x1b[0m"
 
 
+def is_verbose():
+    """Checks if extra console output is enabled in deforum settings."""
+    return opts.data.get("deforum_debug_mode_enabled", False)
+
+
 def print_tween_frame_from_to_info(key_step, is_disabled=True):
     if not is_disabled:  # replaced with prog bar, but value info print may be useful
         tween_values = key_step.tween_values
@@ -30,7 +38,6 @@ def print_tween_frame_from_to_info(key_step, is_disabled=True):
 
 
 def print_animation_frame_info(i, max_frames):
-    print()  # skipping out of the progress bar.
     print(f"{CYAN}Animation frame: {RESET}{i}/{max_frames}")
 
 
@@ -55,6 +62,19 @@ def print_redo_generation_info(data, n):
     print(f"Redo generation {n + 1} of {int(data.args.anim_args.diffusion_redo)} before final generation")
 
 
+def print_tween_step_creation_info(key_steps, index_dist):
+    tween_count = sum(len(ks.tweens) for ks in key_steps)
+    msg_start = f"Created {len(key_steps)} key frames with {tween_count} tweens."
+    msg_end = f"Key frame index distribution: '{index_dist.name}'."
+    info(f"{msg_start} {msg_end}")
+
+
+def print_key_step_debug_info_if_verbose(key_steps):
+    for i, ks in enumerate(key_steps):
+        tween_indices = [t.i() for t in ks.tweens]
+        debug(f"Key frame {ks.i} has {len(tween_indices)} tweens: {tween_indices}")
+
+
 def print_warning_generate_returned_no_image():
     print(f"{YELLOW}Warning: {RESET}Generate returned no image. Skipping to next iteration.")
 
@@ -68,8 +88,9 @@ def warn(s: str):
 
 
 def debug(s: str):
-    eye_catcher = "###"
-    print(f"{YELLOW}{BOLD}{eye_catcher} Debug: {RESET}{s}")
+    if is_verbose():
+        eye_catcher = "###"
+        print(f"{YELLOW}{BOLD}{eye_catcher} Debug: {RESET}{s}")
 
 
 def with_suppressed_table_printing(func):

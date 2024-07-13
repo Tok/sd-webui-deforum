@@ -12,34 +12,31 @@ class KeyIndexDistribution(Enum):
     RANDOM_SPACING = "Random Spacing"  # distance loosely based on cadence (poc)
     RANDOM_PLACEMENT = "Random Placement"  # no relation to cadence (poc)
 
-    @property
-    def name(self):
-        return self.value
-
     @staticmethod
     def from_UI_tab(data):
         is_uniform_with_parseq = data.args.anim_args.neocore_key_index_distribution == "Uniform with Parseq"
-        return KeyIndexDistribution.UNIFORM_WITH_PARSEQ \
-            if is_uniform_with_parseq \
-            else KeyIndexDistribution.PARSEQ_ONLY
+        return (KeyIndexDistribution.UNIFORM_WITH_PARSEQ
+                if is_uniform_with_parseq
+                else KeyIndexDistribution.PARSEQ_ONLY)
 
     @staticmethod
     def default():
         return KeyIndexDistribution.PARSEQ_ONLY  # same as UNIFORM_SPACING, if no Parseq keys are present.
 
     def calculate(self, start_index, max_frames, num_key_steps, parseq_adapter) -> List[int]:
-        if self == KeyIndexDistribution.PARSEQ_ONLY:
-            return self._parseq_only_indexes(start_index, max_frames, num_key_steps, parseq_adapter)
-        if self == KeyIndexDistribution.UNIFORM_WITH_PARSEQ:
-            return self._uniform_with_parseq_indexes(start_index, max_frames, num_key_steps, parseq_adapter)
-        if self == KeyIndexDistribution.UNIFORM_SPACING:
-            return self._uniform_indexes(start_index, max_frames, num_key_steps)
-        elif self == KeyIndexDistribution.RANDOM_SPACING:
-            return self._random_spacing_indexes(start_index, max_frames, num_key_steps)
-        elif self == KeyIndexDistribution.RANDOM_PLACEMENT:
-            return self._random_placement_indexes(start_index, max_frames, num_key_steps)
-        else:
-            raise ValueError(f"Invalid KeyIndexDistribution: {self}")
+        match self:
+            case KeyIndexDistribution.PARSEQ_ONLY:
+                return self._parseq_only_indexes(start_index, max_frames, num_key_steps, parseq_adapter)
+            case KeyIndexDistribution.UNIFORM_WITH_PARSEQ:
+                return self._uniform_with_parseq_indexes(start_index, max_frames, num_key_steps, parseq_adapter)
+            case KeyIndexDistribution.UNIFORM_SPACING:
+                return self._uniform_indexes(start_index, max_frames, num_key_steps)
+            case KeyIndexDistribution.RANDOM_SPACING:
+                return self._random_spacing_indexes(start_index, max_frames, num_key_steps)
+            case KeyIndexDistribution.RANDOM_PLACEMENT:
+                return self._random_placement_indexes(start_index, max_frames, num_key_steps)
+            case _:
+                raise ValueError(f"Invalid KeyIndexDistribution: {self}")
 
     @staticmethod
     def _uniform_indexes(start_index, max_frames, num_key_steps):

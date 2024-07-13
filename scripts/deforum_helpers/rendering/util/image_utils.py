@@ -1,5 +1,6 @@
 import os
 
+import PIL
 import cv2
 from cv2.typing import MatLike
 
@@ -24,3 +25,7 @@ def save_cadence_frame_and_depth_map_if_active(data: RenderData, i, image):
 def save_and_return_frame(data: RenderData, i, image):
     save_cadence_frame_and_depth_map_if_active(data, i, image)
     return image
+
+
+def is_PIL(image):
+    return type(image) is PIL.Image.Image
