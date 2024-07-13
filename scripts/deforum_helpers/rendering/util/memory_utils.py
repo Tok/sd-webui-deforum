@@ -5,8 +5,6 @@ from modules.shared import cmd_opts, sd_model
 
 
 def is_low_or_med_vram():
-    # TODO Ideally this should only be called once at the beginning of the render.
-    # Perhaps add a constant bool to RenderInit.
     return cmd_opts.lowvram or cmd_opts.medvram  # cmd_opts are imported from elsewhere. keep readonly
 
 

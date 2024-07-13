@@ -40,7 +40,7 @@ class Turbo:
         if self.next.image is not None:
             self.next.image, _ = call_anim_frame_warp(data, i, self.next.image, depth)
 
-    def do_hybrid_video_motion(self, data, indexes, reference_images):
+    def do_hybrid_video_motion(self, data, last_frame, indexes, reference_images):
         """Warps the previous and/or the next to match the motion of the provided reference images."""
         motion = data.args.anim_args.hybrid_motion
 
@@ -50,32 +50,32 @@ class Turbo:
         if _is_do_motion(['Affine', 'Perspective']):
             Turbo.advance_hybrid_motion_ransac_transform(data, indexes, reference_images)
         if _is_do_motion(['Optical Flow']):
-            self.advance_hybrid_motion_optical_tween_flow(data, indexes, reference_images, step)
+            self.advance_hybrid_motion_optical_tween_flow(data, indexes, reference_images, last_frame)
 
     def advance_optical_flow(self, tween_step, flow_factor: int = 1):
         flow = tween_step.cadence_flow * -1
         self.next.image = image_transform_optical_flow(self.next.image, flow, flow_factor)
 
-    def advance_optical_tween_flow(self, step, flow):
-        ff = step.step_data.flow_factor()
+    def advance_optical_tween_flow(self, last_frame, flow):
+        ff = last_frame.step_data.flow_factor()
         i = indexes.tween.i
         if self.is_advance_prev(i):
             self.prev.image = image_transform_optical_flow(self.prev.image, flow, ff)
         if self.is_advance_next(i):
             self.next.image = image_transform_optical_flow(self.next.image, flow, ff)
 
-    def advance_hybrid_motion_optical_tween_flow(self, data, indexes, reference_images, step):
+    def advance_hybrid_motion_optical_tween_flow(self, data, indexes, reference_images, last_frame):
         last_i = indexes.tween.i - 1
         flow = (call_get_flow_for_hybrid_motion(data, last_i)
                 if not data.args.anim_args.hybrid_motion_use_prev_img
                 else call_get_flow_for_hybrid_motion_prev(data, last_i, reference_images.previous))
-        turbo.advance_optical_tween_flow(self, step, flow)
+        turbo.advance_optical_tween_flow(self, last_frame, flow)
         data.animation_mode.prev_flow = flow
 
-    def advance_cadence_flow(self, data, tween_step):
+    def advance_cadence_flow(self, data, tween_frame):
         ff = data.args.anim_args.cadence_flow_factor_schedule
-        i = tween_step.i()
-        inc = tween_step.cadence_flow_inc  # FIXME
+        i = tween_frame.i()
+        inc = tween_frame.cadence_flow_inc  # FIXME
         if self.is_advance_prev(i):
             self.prev.image = image_transform_optical_flow(self.prev.image, inc, ff)
         if self.is_advance_next(i):
@@ -99,40 +99,40 @@ class Turbo:
                   else call_get_matrix_for_hybrid_motion_prev(data, last_i, reference_images.previous))
         turbo.advance_ransac_transform(data, matrix)
 
-    def advance_optical_flow_cadence_before_animation_warping(self, data, last_step, tween_step):
+    def advance_optical_flow_cadence_before_animation_warping(self, data, last_frame, tween_frame):
         if data.is_3d_or_2d() and data.has_optical_flow_cadence():
             i = data.indexes.tween.start
             has_tween_schedule = data.animation_keys.deform_keys.strength_schedule_series[i] > 0
             has_images = self.prev.image is not None and self.next.image is not None
-            has_step_and_images = tween_step.cadence_flow is None and has_images
+            has_step_and_images = tween_frame.cadence_flow is None and has_images
             if has_tween_schedule and has_step_and_images and data.animation_mode.is_raft_active():
                 cadence = "RAFT"  # FIXME data.args.anim_args.optical_flow_cadence
                 flow = call_get_flow_from_images(data, self.prev.image, self.next.image, cadence)
-                tween_step.cadence_flow = (flow / 2)
-            if tween_step.cadence_flow is not None:
-                self.advance_optical_flow(tween_step)
+                tween_frame.cadence_flow = (flow / 2)
+            if tween_frame.cadence_flow is not None:
+                self.advance_optical_flow(tween_frame)
 
             # flow_factor = 1.0 / (last_step.i - tween_step.i() + 1)
-            flow_factor = 100.0 / len(last_step.tweens)
+            flow_factor = 100.0 / len(last_frame.tweens)
             # flow_factor = 100.0
-            if tween_step.cadence_flow is not None:
-                self.next.image = image_transform_optical_flow(self.next.image, -tween_step.cadence_flow, flow_factor)
+            if tween_frame.cadence_flow is not None:
+                self.next.image = image_transform_optical_flow(self.next.image, -tween_frame.cadence_flow, flow_factor)
 
-    def do_optical_flow_cadence_after_animation_warping(self, data, indexes, tween_step):
+    def do_optical_flow_cadence_after_animation_warping(self, data, indexes, tween_frame):
         if not data.animation_mode.is_raft_active():
             return self.next.image
-        if tween_step.cadence_flow is not None:
+        if tween_frame.cadence_flow is not None:
             # TODO Calculate all increments before running the generation (and try to avoid abs->rel->abs conversions).
             # temp_flow = abs_flow_to_rel_flow(tween_step.cadence_flow, data.width(), data.height())
             # new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, temp_flow, None)
             new_flow, _ = call_anim_frame_warp(data, indexes.tween.i, self.prev.image, None)
-            tween_step.cadence_flow = new_flow
-            abs_flow = rel_flow_to_abs_flow(tween_step.cadence_flow, data.width(), data.height())
-            tween_step.cadence_flow_inc = abs_flow * tween_step.tween
-            self.advance_cadence_flow(data, tween_step)
+            tween_frame.cadence_flow = new_flow
+            abs_flow = rel_flow_to_abs_flow(tween_frame.cadence_flow, data.width(), data.height())
+            tween_frame.cadence_flow_inc = abs_flow * tween_frame.value
+            self.advance_cadence_flow(data, tween_frame)
         self.prev.index = self.next.frame_idx = indexes.tween.i if indexes is not None else 0
-        if self.prev.image is not None and tween_step.tween < 1.0:
-            return self.prev.image * (1.0 - tween_step.tween) + self.next.image * tween_step.tween
+        if self.prev.image is not None and tween_frame.value < 1.0:
+            return self.prev.image * (1.0 - tween_frame.value) + self.next.image * tween_frame.value
         return self.next.image
 
     def progress_step(self, indexes, opencv_image):

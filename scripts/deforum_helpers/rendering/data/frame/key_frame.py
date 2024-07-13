@@ -26,7 +26,7 @@ from ....save_images import save_image
 from ....seed import next_seed
 
 
-@dataclass(init=True, frozen=False, repr=False, eq=False)
+@dataclass(init=True, frozen=True, repr=False, eq=False)
 class KeyFrameData:
     noise: Any = None
     strength: Any = None
@@ -257,7 +257,7 @@ class KeyFrame:
         log_utils.print_optical_flow_info(data, redo)  # TODO output temp seed?
 
         sample_image = call_generate(data, self)
-        optical_tube = img_2_img_tubes.optical_flow_redo_tube(data, redo)
+        optical_tube = img_2_img_tubes.optical_flow_redo_tube(data, self, redo)
         transformed_sample_image = optical_tube(sample_image)
 
         data.args.args.seed = stored_seed  # restore stored seed
@@ -268,7 +268,7 @@ class KeyFrame:
         stored_seed = data.args.args.seed
         last_diffusion_redo_index = int(data.args.anim_args.diffusion_redo)
         for n in range(0, last_diffusion_redo_index):
-            print_redo_generation_info(data, n)
+            log_utils.print_redo_generation_info(data, n)
             data.args.args.seed = utils.generate_random_seed()
             diffusion_redo_image = call_generate(data, self)
             diffusion_redo_image = cv2.cvtColor(np.array(diffusion_redo_image), cv2.COLOR_RGB2BGR)
@@ -288,7 +288,7 @@ class KeyFrame:
 
     @staticmethod
     def apply_color_matching(data: RenderData, image):
-        return apply_color_coherence(image, data) if data.has_color_coherence() else image
+        return KeyFrame.apply_color_coherence(image, data) if data.has_color_coherence() else image
 
     @staticmethod
     def apply_color_coherence(image, data: RenderData):

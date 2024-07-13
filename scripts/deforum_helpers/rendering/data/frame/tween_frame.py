@@ -17,7 +17,7 @@ class Tween:
     cadence_flow: Any  # late init
     cadence_flow_inc: Any  # late init
     depth: Any
-    depth_prediction: Any
+    depth_prediction: Any  # reassigned
 
     def i(self):
         return self.indexes.tween.i
@@ -28,16 +28,16 @@ class Tween:
     def to_key_step_i(self):
         return self.indexes.frame.i
 
-    def emit_frame(self, last_step, grayscale_tube, overlay_mask_tube):
+    def emit_frame(self, last_frame, grayscale_tube, overlay_mask_tube):
         """Emits this tween frame."""
-        max_frames = last_step.render_data.args.anim_args.max_frames
+        max_frames = last_frame.render_data.args.anim_args.max_frames
         if self.i() >= max_frames:
             return  # skipping tween emission on the last frame
 
-        data = last_step.render_data
+        data = last_frame.render_data
         # data.turbo.steps = len(last_step.tweens)
         self.handle_synchronous_status_concerns(data)
-        self.process(last_step, data)
+        self.process(last_frame, data)
 
         new_image = self.generate_tween_image(data, grayscale_tube, overlay_mask_tube)
         # TODO pass step and depth instead of data and tween_step.indexes
@@ -54,12 +54,12 @@ class Tween:
         masked = overlay_mask_tube(data, is_tween)(recolored)
         return masked
 
-    def process(self, last_step, data):
-        data.turbo.advance_optical_flow_cadence_before_animation_warping(data, last_step, self)
+    def process(self, last_frame, data):
+        data.turbo.advance_optical_flow_cadence_before_animation_warping(data, last_frame, self)
         self.depth_prediction = Tween.calculate_depth_prediction(data, data.turbo)
         # log_utils.info(f"self.depth_prediction {self.depth_prediction}")
         data.turbo.advance(data, self.indexes.tween.i, self.depth)
-        data.turbo.do_hybrid_video_motion(data, self.indexes, data.images)  # FIXME? remove self.indexes or init.indexes
+        data.turbo.do_hybrid_video_motion(data, last_frame, self.indexes, data.images)
 
     def handle_synchronous_status_concerns(self, data):
         self.write_tween_frame_subtitle_if_active(data)  # TODO decouple from execution and calc all in advance?
@@ -74,13 +74,13 @@ class Tween:
             call_write_frame_subtitle(data, self.indexes.tween.i, params_string, is_cadence)
 
     @staticmethod
-    def create_in_between_steps(key_steps, i, data, from_i, to_i):
+    def create_in_between_steps(key_frames, i, data, from_i, to_i):
         tween_range = range(from_i, to_i)
         tween_indexes_list: List[Indexes] = Tween.create_indexes(data.indexes, tween_range)
-        last_step = key_steps[i]
+        last_step = key_frames[i]
         tween_steps_and_values = Tween.create_steps(last_step, tween_indexes_list)
         for tween in tween_steps_and_values[0]:
-            tween.indexes.update_tween_index(tween.i() + key_steps[i].i)
+            tween.indexes.update_tween_index(tween.i() + key_frames[i].i)
         return tween_steps_and_values
 
     @staticmethod
@@ -98,21 +98,21 @@ class Tween:
         return original_indexes
 
     @staticmethod
-    def create_steps_from_values(last_step, values):
+    def create_steps_from_values(last_frame, values):
         count = len(values)
         r = range(count)
-        indexes_list = [Tween._increment(last_step.render_data.indexes.copy(), count, i + 1) for i in r]
-        return list((Tween(indexes_list[i], values[i], None, None, last_step.depth, None) for i in r))
+        indexes_list = [Tween._increment(last_frame.render_data.indexes.copy(), count, i + 1) for i in r]
+        return list((Tween(indexes_list[i], values[i], None, None, last_frame.depth, None) for i in r))
 
     @staticmethod
     def create_indexes(base_indexes: Indexes, frame_range: Iterable[int]) -> list[Indexes]:
         return list(chain.from_iterable([Indexes.create_from_last(base_indexes, i)] for i in frame_range))
 
     @staticmethod
-    def create_steps(last_step, tween_indexes_list: list[Indexes]) -> Tuple[list['Tween'], list[float]]:
+    def create_steps(last_frame, tween_indexes_list: list[Indexes]) -> Tuple[list['Tween'], list[float]]:
         if len(tween_indexes_list) > 0:
             expected_tween_frames = Tween._calculate_expected_tween_frames(len(tween_indexes_list))
-            return Tween.create_steps_from_values(last_step, expected_tween_frames), expected_tween_frames
+            return Tween.create_steps_from_values(last_frame, expected_tween_frames), expected_tween_frames
         return list(), list()
 
     @staticmethod

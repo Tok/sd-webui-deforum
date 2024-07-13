@@ -1,7 +1,7 @@
-from ... import generate
-
 # noinspection PyUnresolvedReferences
 from modules.shared import opts
+
+from ... import generate
 
 COLOUR_RGB = '\x1b[38;2;%d;%d;%dm'
 RED = "\033[31m"
@@ -77,6 +77,12 @@ def print_key_step_debug_info_if_verbose(key_steps):
 
 def print_warning_generate_returned_no_image():
     print(f"{YELLOW}Warning: {RESET}Generate returned no image. Skipping to next iteration.")
+
+
+def print_cuda_memory_state(cuda):
+    for i in range(cuda.device_count()):
+        print(f"CUDA memory allocated on device {i}: {cuda.memory_allocated(i)} of {cuda.max_memory_allocated(i)}")
+        print(f"CUDA memory reserved on device {i}: {cuda.memory_reserved(i)} of {cuda.max_memory_reserved(i)}")
 
 
 def info(s: str):

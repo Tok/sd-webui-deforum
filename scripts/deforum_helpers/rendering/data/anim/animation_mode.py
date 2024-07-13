@@ -8,13 +8,12 @@ from ....RAFT import RAFT
 from ....hybrid_video import hybrid_generation
 
 
-# TODO FIXME find a way to assign prev_flow right away, then set frozen=true again, otherwise move prev_flow elsewhere.
-@dataclass(init=True, frozen=False, repr=False, eq=False)
+@dataclass(init=True, frozen=True, repr=False, eq=False)
 class AnimationMode:
     has_video_input: bool = False
     hybrid_input_files: Any = None
     hybrid_frame_path: str = ""
-    prev_flow: Any = None
+    prev_flow: Any | None = None
     is_keep_in_vram: bool = False
     depth_model: Any = None
     raft_model: Any = None
