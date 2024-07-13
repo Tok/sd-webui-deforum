@@ -22,8 +22,8 @@ from modules.shared import cmd_opts, progress_print_out, state
 from tqdm import tqdm
 
 from .rendering import img_2_img_tubes
-from .rendering.data.render_data import RenderData
 from .rendering.data.frame import KeyFrameDistribution, KeyFrame
+from .rendering.data.render_data import RenderData
 from .rendering.util import filename_utils, image_utils, log_utils, memory_utils, web_ui_utils
 
 
@@ -35,16 +35,13 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
 # @log_utils.with_suppressed_table_printing
 def run_render_animation(data: RenderData):
     web_ui_utils.init_job(data)
-    start_index = data.turbo.find_start(data)
-    key_frames = KeyFrame.create_all_steps(data, start_index, KeyFrameDistribution.from_UI_tab(data))
-
+    key_frames = KeyFrame.create_all_frames(data, KeyFrameDistribution.from_UI_tab(data))
     for key_frame in key_frames:
         if is_resume(data, key_frame):
             continue
 
         memory_utils.handle_med_or_low_vram_before_step(data)
         web_ui_utils.update_job(data)
-
         if key_frame.has_tween_frames():
             emit_tweens(data, key_frame)
 
@@ -55,7 +52,7 @@ def run_render_animation(data: RenderData):
         contrasted_noise_tube = img_2_img_tubes.contrasted_noise_transformation_tube
         key_frame.prepare_generation(frame_tube, contrasted_noise_tube)
 
-        image = key_frame.do_generation()
+        image = key_frame.generate()
         if image is None:
             log_utils.print_warning_generate_returned_no_image()
             break
@@ -63,16 +60,12 @@ def run_render_animation(data: RenderData):
         if not image_utils.is_PIL(image):  # check is required when resuming from timestring
             image = img_2_img_tubes.conditional_frame_transformation_tube(key_frame)(image)
 
-        key_frame.render_data.images.color_match = img_2_img_tubes.conditional_color_match_tube(key_frame)(image)
-
-        key_frame.progress_and_save(image)
         state.assign_current_image(image)
-
+        key_frame.render_data.images.color_match = img_2_img_tubes.conditional_color_match_tube(key_frame)(image)
+        key_frame.progress_and_save(image)
         key_frame.render_data.args.args.seed = key_frame.next_seed()
-
         key_frame.update_render_preview()
         web_ui_utils.update_status_tracker(key_frame.render_data)
-
     data.animation_mode.unload_raft_and_depth_model()
 
 
@@ -108,6 +101,7 @@ def setup_pseudo_cadence(data, value):
 
 def _tweens_with_progress(key_step):
     # only use tween progress bar when extra console output (aka "dev mode") is disabled.
-    return tqdm(key_step.tweens, position=1, desc="Tweens progress", file=progress_print_out,
-                disable=cmd_opts.disable_console_progressbars, leave=False, colour='#FFA468') \
-        if not log_utils.is_verbose() else key_step.tweens
+    return (tqdm(key_step.tweens, position=1, desc="Tweens progress", file=progress_print_out,
+                 disable=cmd_opts.disable_console_progressbars, leave=False, colour='#FFA468')
+            if not log_utils.is_verbose()
+            else key_step.tweens)

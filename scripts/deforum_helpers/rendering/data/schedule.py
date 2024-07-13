@@ -12,7 +12,6 @@ class Schedule:
     eta_ancestral: float  # TODO unify ddim- and a-eta to use one or the other, depending on sampler
     mask: Optional[Any]
     noise_mask: Optional[Any]
-    noise_mask_seq: Any
 
     @staticmethod
     def create(init, i, anim_args, args):
@@ -27,10 +26,8 @@ class Schedule:
         eta_ddim = Schedule.schedule_ddim_eta(keys, i, anim_args)
         eta_ancestral = Schedule.schedule_ancestral_eta(keys, i, anim_args)
         mask = Schedule.schedule_mask(keys, i, args)
-        noise_mask = Schedule.schedule_noise_mask(keys, i, anim_args)
-        noise_mask_seq = schedule.mask_seq if is_use_mask_without_noise else None
-        return Schedule(steps, sampler_name, clipskip, noise_multiplier, eta_ddim, eta_ancestral, mask,
-                        noise_mask, noise_mask_seq)
+        noise_mask = mask if is_use_mask_without_noise else Schedule.schedule_noise_mask(keys, i, anim_args)
+        return Schedule(steps, sampler_name, clipskip, noise_multiplier, eta_ddim, eta_ancestral, mask, noise_mask)
 
     @staticmethod
     def _has_schedule(keys, i):

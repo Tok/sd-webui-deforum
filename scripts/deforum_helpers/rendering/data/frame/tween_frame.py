@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from itertools import chain
-from typing import Any, Iterable, Tuple
+from typing import Any, Iterable, Tuple, List
 
 from ..turbo import Turbo
 from ...data.indexes import Indexes, IndexWithStart
@@ -41,7 +41,7 @@ class Tween:
 
         new_image = self.generate_tween_image(data, grayscale_tube, overlay_mask_tube)
         # TODO pass step and depth instead of data and tween_step.indexes
-        new_image = image_utils.save_and_return_frame(data, self.i(), new_image)
+        new_image = image_utils.save_and_return_frame(data, self, self.i(), new_image)
 
         # updating reference images to calculate hybrid motions in next iteration
         data.images.previous = new_image  # FIXME

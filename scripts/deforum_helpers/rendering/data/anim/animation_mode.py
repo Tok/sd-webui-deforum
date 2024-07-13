@@ -8,7 +8,7 @@ from ....RAFT import RAFT
 from ....hybrid_video import hybrid_generation
 
 
-@dataclass(init=True, frozen=True, repr=False, eq=False)
+@dataclass(init=True, frozen=False, repr=False, eq=False)
 class AnimationMode:
     has_video_input: bool = False
     hybrid_input_files: Any = None

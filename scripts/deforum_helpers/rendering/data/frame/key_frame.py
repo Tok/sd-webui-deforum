@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, List
 
+import PIL
 import cv2
 import numpy as np
 from PIL import Image
@@ -21,6 +22,7 @@ from ...util.call.images import call_add_noise
 from ...util.call.mask import call_compose_mask_with_check, call_unsharp_mask
 from ...util.call.subtitle import call_format_animation_params, call_write_frame_subtitle
 from ...util.call.video_and_audio import call_render_preview
+from ....colors import maintain_colors
 from ....hybrid_video import image_transform_ransac, image_transform_optical_flow
 from ....save_images import save_image
 from ....seed import next_seed
@@ -105,13 +107,6 @@ class KeyFrame:
             self.subtitle_params_string = call_format_animation_params(data, data.indexes.frame.i, params_string)
             call_write_frame_subtitle(data, data.indexes.frame.i, params_string)
 
-    def write_frame_subtitle_if_active(self, data: RenderData):
-        if opt_utils.is_generate_subtitles(data):
-            params_string = opt_utils.generation_info_for_subtitles(data)
-            self.subtitle_params_to_print = params_string
-            self.subtitle_params_string = call_format_animation_params(data, self.indexes.tween.i, params_string)
-            call_write_frame_subtitle(data, self.indexes.tween.i, params_string, sub_step.tween < 1.0)
-
     def apply_frame_warp_transform(self, data: RenderData, image):
         is_not_last_frame = self.i < data.args.anim_args.max_frames
         if is_not_last_frame:  # TODO? why not
@@ -145,8 +140,9 @@ class KeyFrame:
     def apply_frame_noising(self, data: RenderData, mask, image):
         is_use_any_mask = data.args.args.use_mask or data.args.anim_args.use_noise_mask
         if is_use_any_mask:
-            seq = self.schedule.noise_mask_seq
+            seq = self.schedule.noise_mask
             vals = mask.noise_vals
+            contrast_image = image
             data.args.root.noise_mask = call_compose_mask_with_check(data, seq, vals, contrast_image)
         return call_add_noise(data, self, image)
 
@@ -154,7 +150,7 @@ class KeyFrame:
         data = self.render_data
         if data.args.anim_args.color_coherence == 'Video Input' and data.is_hybrid_available():
             if int(data.indexes.frame.i) % int(data.args.anim_args.color_coherence_video_every_N_frames) == 0:
-                prev_vid_img = Image.open(preview_video_image_path(data, data.indexes))
+                prev_vid_img = Image.open(filename_utils.preview_video_image_path(data, data.indexes))
                 prev_vid_img = prev_vid_img.resize(data.dimensions(), PIL.Image.LANCZOS)
                 data.images.color_match = np.asarray(prev_vid_img)
                 return cv2.cvtColor(data.images.color_match, cv2.COLOR_RGB2BGR)
@@ -199,7 +195,7 @@ class KeyFrame:
         if is_diffusion_redo and is_not_preview:
             self.do_diffusion_redo()
 
-    def do_generation(self):
+    def generate(self):
         max_frames = self.render_data.args.anim_args.max_frames
         if self.render_data.indexes.frame.i >= max_frames:
             # TODO? prevents an error elsewhere when generating last frame, but `indexes`..
@@ -226,7 +222,7 @@ class KeyFrame:
             # TODO perhaps save original frames in a different sub dir?
             save_image(image, 'PIL', filename, data.args.args, data.args.video_args, data.args.root)
 
-        self.depth = self.generate_and_save_depth_map_if_active()
+        self.depth = self.generate_and_save_depth_map_if_active(opencv_image)
         if data.turbo.has_steps():
             return data.indexes.frame.i + data.turbo.progress_step(data.indexes, opencv_image)
         return data.indexes.frame.i + 1  # normal (i.e. 'non-turbo') step always increments by 1.
@@ -237,14 +233,14 @@ class KeyFrame:
     def update_render_preview(self):
         self.last_preview_frame = call_render_preview(self.render_data, self.last_preview_frame)
 
-    def generate_and_save_depth_map_if_active(self):
+    def generate_and_save_depth_map_if_active(self, opencv_image):
         data = self.render_data
         # TODO move all depth related stuff to new class.
         if data.args.anim_args.save_depth_maps:
             memory_utils.handle_vram_before_depth_map_generation(data)
             depth = data.depth_model.predict(opencv_image, data.args.anim_args.midas_weight,
                                              data.args.root.half_precision)
-            depth_filename = filename_utils.depth_frame(data, idx)
+            depth_filename = filename_utils.depth_frame(data, data.indexes)
             data.depth_model.save(os.path.join(data.output_directory, depth_filename), depth)
             memory_utils.handle_vram_after_depth_map_generation(data)
             return depth
@@ -320,7 +316,7 @@ class KeyFrame:
         return image
 
     @staticmethod
-    def apply_hybrid_motion_optical_flow(data: RenderData, image):
+    def apply_hybrid_motion_optical_flow(data: RenderData, key_frame, image):
         motion = data.args.anim_args.hybrid_motion
         if motion in ['Optical Flow']:
             last_i = data.indexes.frame.i - 1
@@ -328,14 +324,16 @@ class KeyFrame:
             flow = call_get_flow_for_hybrid_motion_prev(data, last_i, reference_images.previous) \
                 if data.args.anim_args.hybrid_motion_use_prev_img \
                 else call_get_flow_for_hybrid_motion(data, last_i)
-            transformed = image_transform_optical_flow(images.previous, flow, step.step_data.flow_factor())
+            transformed = image_transform_optical_flow(
+                reference_images.previous, flow, key_frame.step_data.flow_factor())
             data.animation_mode.prev_flow = flow  # side effect
             return transformed
         return image
 
     @staticmethod
-    def create_all_steps(data, start_index, index_dist: KeyFrameDistribution = KeyFrameDistribution.default()):
+    def create_all_frames(data, index_dist: KeyFrameDistribution = KeyFrameDistribution.default()):
         """Creates a list of key steps for the entire animation."""
+        start_index = data.turbo.find_start(data)
         num_key_steps = 1 + int((data.args.anim_args.max_frames - start_index) / data.cadence())
         if data.parseq_adapter.use_parseq and index_dist is KeyFrameDistribution.PARSEQ_ONLY:
             num_key_steps = len(data.parseq_adapter.parseq_json["keyframes"])

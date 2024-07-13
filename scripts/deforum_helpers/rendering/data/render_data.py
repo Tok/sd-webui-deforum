@@ -16,7 +16,8 @@ from .indexes import Indexes
 from .mask import Mask
 from .subtitle import Srt
 from .turbo import Turbo
-from ..util import memory_utils, opt_utils
+from ..util import log_utils, memory_utils, opt_utils
+from ..util.call.images import call_get_mask_from_file_with_frame
 from ..util.call.mask import call_compose_mask_with_check
 from ..util.call.video_and_audio import call_get_next_frame
 from ...args import DeforumArgs, DeforumAnimArgs, LoopArgs, ParseqArgs, RootArgs
@@ -244,8 +245,8 @@ class RenderData:
 
     def _update_video_input_for_current_frame(self, i, step):
         video_init_path = self.args.anim_args.video_init_path
-        init_frame = call_get_next_frame(init, i, video_init_path)
-        print_init_frame_info(init_frame)
+        init_frame = call_get_next_frame(self, i, video_init_path)
+        log_utils.print_init_frame_info(init_frame)
         self.args.args.init_image = init_frame
         self.args.args.init_image_box = None  # init_image_box not used in this case
         self.args.args.strength = max(0.0, min(1.0, step.step_data.strength))
@@ -257,7 +258,7 @@ class RenderData:
         new_mask = call_get_mask_from_file_with_frame(self, mask_init_frame)
         self.args.args.mask_file = new_mask
         self.args.root.noise_mask = new_mask
-        mask.vals['video_mask'] = new_mask
+        self.mask.vals['video_mask'] = new_mask
 
     def update_video_data_for_current_frame(self, i, step):
         if self.animation_mode.has_video_input:

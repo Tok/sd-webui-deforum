@@ -3,12 +3,11 @@ from dataclasses import dataclass
 from cv2.typing import MatLike
 
 from .subtitle import Srt
-from ..util import log_utils
 from ..util.call.anim import call_anim_frame_warp
-from ..util.call.hybrid import call_get_flow_from_images
+from ..util.call.hybrid import call_get_flow_from_images, call_get_flow_for_hybrid_motion_prev, \
+    call_get_flow_for_hybrid_motion, call_get_matrix_for_hybrid_motion, call_get_matrix_for_hybrid_motion_prev
 from ..util.call.resume import call_get_resume_vars
-from ...hybrid_video import (image_transform_ransac, image_transform_optical_flow,
-                             abs_flow_to_rel_flow, rel_flow_to_abs_flow)
+from ...hybrid_video import image_transform_ransac, image_transform_optical_flow, rel_flow_to_abs_flow
 
 
 @dataclass(init=True, frozen=False, repr=False, eq=True)
@@ -48,7 +47,7 @@ class Turbo:
             return indexes.tween.i > 0 and motion in motions
 
         if _is_do_motion(['Affine', 'Perspective']):
-            Turbo.advance_hybrid_motion_ransac_transform(data, indexes, reference_images)
+            self.advance_hybrid_motion_ransac_transform(data, indexes, reference_images)
         if _is_do_motion(['Optical Flow']):
             self.advance_hybrid_motion_optical_tween_flow(data, indexes, reference_images, last_frame)
 
@@ -56,7 +55,7 @@ class Turbo:
         flow = tween_step.cadence_flow * -1
         self.next.image = image_transform_optical_flow(self.next.image, flow, flow_factor)
 
-    def advance_optical_tween_flow(self, last_frame, flow):
+    def advance_optical_tween_flow(self, indexes, last_frame, flow):
         ff = last_frame.step_data.flow_factor()
         i = indexes.tween.i
         if self.is_advance_prev(i):
@@ -69,7 +68,7 @@ class Turbo:
         flow = (call_get_flow_for_hybrid_motion(data, last_i)
                 if not data.args.anim_args.hybrid_motion_use_prev_img
                 else call_get_flow_for_hybrid_motion_prev(data, last_i, reference_images.previous))
-        turbo.advance_optical_tween_flow(self, last_frame, flow)
+        self.advance_optical_tween_flow(indexes, last_frame, flow)
         data.animation_mode.prev_flow = flow
 
     def advance_cadence_flow(self, data, tween_frame):
@@ -83,21 +82,19 @@ class Turbo:
 
     # TODO? move to RenderData
     def advance_ransac_transform(self, data, matrix):
-        i = indexes.tween.i
+        i = data.indexes.tween.i
         motion = data.args.anim_args.hybrid_motion
         if self.is_advance_prev(i):
             self.prev.image = image_transform_ransac(self.prev.image, matrix, motion)
         if self.is_advance_next(i):
             self.next.image = image_transform_ransac(self.next.image, matrix, motion)
 
-    # TODO? move to RenderData
-    @staticmethod
-    def advance_hybrid_motion_ransac_transform(data, indexes, reference_images):
+    def advance_hybrid_motion_ransac_transform(self, data, indexes, reference_images):
         last_i = indexes.tween.i - 1
         matrix = (call_get_matrix_for_hybrid_motion(data, last_i)
                   if not data.args.anim_args.hybrid_motion_use_prev_img
                   else call_get_matrix_for_hybrid_motion_prev(data, last_i, reference_images.previous))
-        turbo.advance_ransac_transform(data, matrix)
+        self.advance_ransac_transform(data, matrix)
 
     def advance_optical_flow_cadence_before_animation_warping(self, data, last_frame, tween_frame):
         if data.is_3d_or_2d() and data.has_optical_flow_cadence():

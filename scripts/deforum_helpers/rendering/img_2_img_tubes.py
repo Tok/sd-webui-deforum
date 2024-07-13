@@ -2,6 +2,7 @@ from typing import Callable
 
 import cv2
 import numpy as np
+from PIL import ImageOps, Image
 from cv2.typing import MatLike
 
 from .data.frame.key_frame import KeyFrame
@@ -34,7 +35,7 @@ def frame_transformation_tube(data: RenderData, key_frame: KeyFrame) -> ImageTub
     return tube(lambda img: key_frame.apply_frame_warp_transform(data, img),
                 lambda img: key_frame.do_hybrid_compositing_before_motion(data, img),
                 lambda img: KeyFrame.apply_hybrid_motion_ransac_transform(data, img),
-                lambda img: KeyFrame.apply_hybrid_motion_optical_flow(data, img),
+                lambda img: KeyFrame.apply_hybrid_motion_optical_flow(data, key_frame, img),
                 lambda img: key_frame.do_normal_hybrid_compositing_after_motion(data, img),
                 lambda img: KeyFrame.apply_color_matching(data, img),
                 lambda img: KeyFrame.transform_to_grayscale_if_active(data, img))
@@ -64,8 +65,7 @@ def conditional_hybrid_video_after_generation_tube(key_frame: KeyFrame) -> Image
     return tube(lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
                 lambda img: call_hybrid_composite(data, data.indexes.frame.i, img, step_data.hybrid_comp_schedules),
                 lambda img: Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)),
-                is_do_process=
-                lambda: data.indexes.is_not_first_frame() and data.is_hybrid_composite_after_generation())
+                is_do_process=lambda: data.indexes.is_not_first_frame() and data.is_hybrid_composite_after_generation())
 
 
 def conditional_extra_color_match_tube(data: RenderData) -> ImageTube:
@@ -75,8 +75,8 @@ def conditional_extra_color_match_tube(data: RenderData) -> ImageTube:
                 lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
                 lambda img: maintain_colors(img, data.images.color_match, data.args.anim_args.color_coherence),
                 lambda img: Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)),
-                is_do_process=
-                lambda: data.indexes.is_first_frame() and data.is_initialize_color_match(data.images.color_match))
+                is_do_process=lambda: data.indexes.is_first_frame() and data.is_initialize_color_match(
+                    data.images.color_match))
 
 
 def conditional_color_match_tube(key_frame: KeyFrame) -> ImageTube:
@@ -110,14 +110,14 @@ def conditional_force_tween_to_grayscale_tube(data: RenderData) -> ImageTube:
 # Composite Tubes, made from other Tubes.
 def contrasted_noise_transformation_tube(data: RenderData, key_frame: KeyFrame) -> ImageTube:
     """Combines contrast and noise transformation tubes."""
-    contrast_tube: Tube = contrast_transformation_tube(data, key_frame)
-    noise_tube: Tube = noise_transformation_tube(data, key_frame)
+    contrast_tube: ImageTube = contrast_transformation_tube(data, key_frame)
+    noise_tube: ImageTube = noise_transformation_tube(data, key_frame)
     return tube(lambda img: noise_tube(contrast_tube(img)))
 
 
 def conditional_frame_transformation_tube(key_frame: KeyFrame, is_tween: bool = False) -> ImageTube:
-    hybrid_tube: Tube = conditional_hybrid_video_after_generation_tube(key_frame)
-    extra_tube: Tube = conditional_extra_color_match_tube(key_frame.render_data)
-    gray_tube: Tube = conditional_force_to_grayscale_tube(key_frame.render_data)
-    mask_tube: Tube = conditional_add_overlay_mask_tube(key_frame.render_data, is_tween)
+    hybrid_tube: ImageTube = conditional_hybrid_video_after_generation_tube(key_frame)
+    extra_tube: ImageTube = conditional_extra_color_match_tube(key_frame.render_data)
+    gray_tube: ImageTube = conditional_force_to_grayscale_tube(key_frame.render_data)
+    mask_tube: ImageTube = conditional_add_overlay_mask_tube(key_frame.render_data, is_tween)
     return tube(lambda img: mask_tube(gray_tube(extra_tube(hybrid_tube(img)))))

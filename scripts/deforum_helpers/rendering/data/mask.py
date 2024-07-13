@@ -45,7 +45,7 @@ class Mask:
     @staticmethod
     def _create_mask_image(init):
         args = init.args.args
-        return call_or_use_on_cond(init.is_using_init_image_or_box(), lambda: _load_mask(init, args))
+        return call_or_use_on_cond(init.is_using_init_image_or_box(), lambda: Mask._load_mask(init, args))
 
     @staticmethod
     def _create(init, i, mask_image):

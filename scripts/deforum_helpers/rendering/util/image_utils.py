@@ -15,15 +15,15 @@ def save_cadence_frame(data: RenderData, i: int, image: MatLike, is_overwrite: b
         cv2.imwrite(save_path, image)
 
 
-def save_cadence_frame_and_depth_map_if_active(data: RenderData, i, image):
+def save_cadence_frame_and_depth_map_if_active(data: RenderData, frame, i, image):
     save_cadence_frame(data, i, image)
     if data.args.anim_args.save_depth_maps:
         dm_save_path = os.path.join(data.output_directory, filename_utils.frame_filename(data, i, True))
-        data.depth_model.save(dm_save_path, step.depth)
+        data.depth_model.save(dm_save_path, frame.depth)
 
 
-def save_and_return_frame(data: RenderData, i, image):
-    save_cadence_frame_and_depth_map_if_active(data, i, image)
+def save_and_return_frame(data: RenderData, frame, i, image):
+    save_cadence_frame_and_depth_map_if_active(data, frame, i, image)
     return image
 
 
