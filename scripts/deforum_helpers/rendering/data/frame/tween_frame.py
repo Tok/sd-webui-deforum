@@ -47,17 +47,15 @@ class Tween:
         data.images.previous = new_image  # FIXME
 
     def generate_tween_image(self, data, grayscale_tube, overlay_mask_tube):
-        is_tween = True
         warped = data.turbo.do_optical_flow_cadence_after_animation_warping(data, self.indexes, self)
-        # print(f"warped {warped}")
         recolored = grayscale_tube(data)(warped)
+        is_tween = True
         masked = overlay_mask_tube(data, is_tween)(recolored)
         return masked
 
     def process(self, last_frame, data):
         data.turbo.advance_optical_flow_cadence_before_animation_warping(data, last_frame, self)
         self.depth_prediction = Tween.calculate_depth_prediction(data, data.turbo)
-        # log_utils.info(f"self.depth_prediction {self.depth_prediction}")
         data.turbo.advance(data, self.indexes.tween.i, self.depth)
         data.turbo.do_hybrid_video_motion(data, last_frame, self.indexes, data.images)
 
@@ -72,6 +70,9 @@ class Tween:
             params_string = call_format_animation_params(data, self.indexes.tween.i, params_to_print)
             is_cadence = self.value < 1.0
             call_write_frame_subtitle(data, self.indexes.tween.i, params_string, is_cadence)
+
+    def has_cadence(self):
+        return self.cadence_flow is not None
 
     @staticmethod
     def create_in_between_steps(key_frames, i, data, from_i, to_i):

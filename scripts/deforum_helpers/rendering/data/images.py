@@ -10,8 +10,8 @@ from ...load_images import load_image
 
 @dataclass(init=True, frozen=False, repr=False, eq=True)
 class Images:
-    previous: MatLike | None = None
     color_match: MatLike = None
+    previous: MatLike | None = None
 
     def has_previous(self):
         return self.previous is not None
@@ -27,5 +27,5 @@ class Images:
             return cv2.cvtColor(np.array(resized), cv2.COLOR_RGB2BGR)
 
     @staticmethod
-    def create(init):
-        return Images(None, Images._load_color_match_sample(init))
+    def create(data):
+        return Images(Images._load_color_match_sample(data))

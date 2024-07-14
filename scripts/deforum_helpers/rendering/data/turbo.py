@@ -97,23 +97,23 @@ class Turbo:
         self.advance_ransac_transform(data, matrix)
 
     def advance_optical_flow_cadence_before_animation_warping(self, data, last_frame, tween_frame):
-        if data.is_3d_or_2d() and data.has_optical_flow_cadence():
-            i = data.indexes.tween.start
-            has_tween_schedule = data.animation_keys.deform_keys.strength_schedule_series[i] > 0
-            has_images = self.prev.image is not None and self.next.image is not None
-            has_step_and_images = tween_frame.cadence_flow is None and has_images
-            if has_tween_schedule and has_step_and_images and data.animation_mode.is_raft_active():
+        if data.is_3d_or_2d_with_optical_flow():
+            if self._is_do_flow(data, tween_frame):
                 cadence = "RAFT"  # FIXME data.args.anim_args.optical_flow_cadence
                 flow = call_get_flow_from_images(data, self.prev.image, self.next.image, cadence)
                 tween_frame.cadence_flow = (flow / 2)
-            if tween_frame.cadence_flow is not None:
+            if tween_frame.has_cadence():
                 self.advance_optical_flow(tween_frame)
-
-            # flow_factor = 1.0 / (last_step.i - tween_step.i() + 1)
-            flow_factor = 100.0 / len(last_frame.tweens)
-            # flow_factor = 100.0
-            if tween_frame.cadence_flow is not None:
+                flow_factor = 1.0  # FIXME..
+                # flow_factor = 1.0 / (len(last_frame.tweens) + 1.0)
                 self.next.image = image_transform_optical_flow(self.next.image, -tween_frame.cadence_flow, flow_factor)
+
+    def _is_do_flow(self, data, tween_frame):
+        i = data.indexes.tween.start
+        has_tween_schedule = data.animation_keys.deform_keys.strength_schedule_series[i] > 0
+        has_images = self.prev.image is not None and self.next.image is not None
+        has_step_and_images = tween_frame.cadence_flow is None and has_images
+        return has_tween_schedule and has_step_and_images and data.animation_mode.is_raft_active()
 
     def do_optical_flow_cadence_after_animation_warping(self, data, indexes, tween_frame):
         if not data.animation_mode.is_raft_active():

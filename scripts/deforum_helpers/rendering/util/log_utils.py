@@ -26,6 +26,11 @@ def is_verbose():
     return opts.data.get("deforum_debug_mode_enabled", False)
 
 
+def print_parseq_table_at_start(data, key_step):
+    if key_step.i == 1:
+        data.parseq_adapter.print_parseq_table()
+
+
 def print_tween_frame_from_to_info(key_step, is_disabled=True):
     if not is_disabled:  # replaced with prog bar, but value info print may be useful
         tween_values = key_step.tween_values
@@ -99,6 +104,7 @@ def debug(s: str):
         print(f"{YELLOW}{BOLD}{eye_catcher} Debug: {RESET}{s}")
 
 
+# noqa
 def with_suppressed_table_printing(func):
     def _suppress_table_printing():
         # The combined table that is normally printed to the command line is suppressed,

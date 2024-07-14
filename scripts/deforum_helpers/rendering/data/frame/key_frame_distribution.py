@@ -23,7 +23,13 @@ class KeyFrameDistribution(Enum):
     def default():
         return KeyFrameDistribution.PARSEQ_ONLY  # same as UNIFORM_SPACING, if no Parseq keys are present.
 
-    def calculate(self, start_index, max_frames, num_key_steps, parseq_adapter) -> List[int]:
+    def calculate(self, key_frames, start_index, max_frames, num_key_steps, parseq_adapter) -> List[int]:
+        key_indices: List[int] = self._calculate(start_index, max_frames, num_key_steps, parseq_adapter)
+        for i, key_step in enumerate(key_indices):
+            key_frames[i].i = key_indices[i]
+        return key_frames
+
+    def _calculate(self, start_index, max_frames, num_key_steps, parseq_adapter) -> List[int]:
         match self:
             case KeyFrameDistribution.PARSEQ_ONLY:
                 return self._parseq_only_indexes(start_index, max_frames, num_key_steps, parseq_adapter)

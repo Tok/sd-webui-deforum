@@ -202,6 +202,12 @@ class KeyFrame:
             self.render_data.indexes.update_frame(max_frames - 1)
         return call_generate(self.render_data, self)
 
+    def after_diffusion(self, image):
+        self.render_data.images.color_match = img_2_img_tubes.conditional_color_match_tube(self)(image)
+        self.progress_and_save(image)
+        self.render_data.args.args.seed = self.next_seed()
+        self.update_render_preview()
+
     def progress_and_save(self, image):
         next_index = self._progress_save_and_get_next_index(image)
         self.render_data.indexes.update_frame(next_index)
@@ -341,38 +347,29 @@ class KeyFrame:
         key_steps = [KeyFrame.create(data) for _ in range(0, num_key_steps)]
         actual_num_key_steps = len(key_steps)
 
-        recalculated_key_steps = KeyFrame._recalculate_and_check_tweens(data, key_steps,
-                                                                        start_index, actual_num_key_steps,
-                                                                        data.parseq_adapter, index_dist)
+        recalculated_key_steps = KeyFrame._recalculate_and_check_tweens(
+            data, key_steps, start_index, actual_num_key_steps, data.parseq_adapter, index_dist)
         log_utils.print_tween_step_creation_info(key_steps, index_dist)
 
         return recalculated_key_steps
 
     @staticmethod
-    def _recalculate_and_check_tweens(data, key_steps, start_index, num_key_steps,
+    def _recalculate_and_check_tweens(data, key_frames, start_index, num_key_steps,
                                       parseq_adapter, index_distribution):
         max_frames = data.args.anim_args.max_frames
-        key_indices: List[int] = index_distribution.calculate(start_index, max_frames, num_key_steps, parseq_adapter)
-        for i, key_step in enumerate(key_indices):
-            key_steps[i].i = key_indices[i]
-
-        key_steps = KeyFrame._add_tweens_to_key_steps(key_steps)
-        log_utils.print_key_step_debug_info_if_verbose(key_steps)
+        key_frames = index_distribution.calculate(key_frames, start_index, max_frames, num_key_steps, parseq_adapter)
+        key_frames = KeyFrame._add_tweens_to_key_steps(key_frames)
+        log_utils.print_key_step_debug_info_if_verbose(key_frames)
 
         # The number of generated tweens depends on index since last key-frame. The last tween has the same
         # index as the key_step it belongs to and is meant to replace the unprocessed original key frame.
-        # TODO? make unit tests instead of asserts...
-        # total_count = len(key_steps) + sum(len(key_step.tweens) - 1 for key_step in key_steps)
-        # log_utils.info(f"total_count {total_count} len(key_steps) {len(key_steps)} max_frames {max_frames}")
-        # assert total_count == len(key_steps) + max_frames  # every key frame except the 1st has a tween double.
-
-        assert len(key_steps) == num_key_steps
-        assert key_steps[0].tweens == []  # 1st key step has no tweens
-        assert key_steps[0].i == 1
+        assert len(key_frames) == num_key_steps
+        assert key_frames[0].i == 1  # 1st key frame is at index 1
+        assert key_frames[0].tweens == []  # 1st key frame has no tweens
         if index_distribution != KeyFrameDistribution.PARSEQ_ONLY:  # just using however many key frames Parseq defines.
-            assert key_steps[-1].i == max_frames
+            assert key_frames[-1].i == max_frames  # last index is same as max frames
 
-        return key_steps
+        return key_frames
 
     @staticmethod
     def _add_tweens_to_key_steps(key_steps):
