@@ -386,6 +386,10 @@ def get_tab_init(d, da, dp):
                 parseq_non_schedule_overrides = create_gr_elem(dp.parseq_non_schedule_overrides)
             with FormRow():
                 parseq_use_deltas = create_gr_elem(dp.parseq_use_deltas)
+            gr.HTML(value=f"""<br/>""")
+            with FormRow():
+                parseq_key_frame_redistribution = create_gr_elem(dp.parseq_key_frame_redistribution)
+            create_keyframe_redistribution_info()
     return {k: v for k, v in {**locals(), **vars()}.items()}
 
 def get_tab_hybrid(da):
@@ -582,57 +586,20 @@ def get_tab_output(da, dv):
     return {k: v for k, v in {**locals(), **vars()}.items()}
 
 
-def get_tab_neocore():
+def create_keyframe_redistribution_info():
     bars_mark = "&#x1F4CA;"
-    check_mark = "&#x2714;&#xFE0F;"
-    cross_mark = "&#x274C;"
-    warn_mark = "&#x26A0;&#xFE0F;"
-    bulb_mark = "&#x1F4A1;"
-    with gr.TabItem('Neo Core', elem_id='neocore_tab'):
-        gr.HTML(value=f"""<p>
-            <div>Parseq Instructions:</div>
-            <ol style="padding-left: 20px;">
-                <li>Setup your Parseq workflow as usual, but with high FPS (60?) and with high cadence (30?).</li>
-                <li>The refactored render core ensures that every frame in the Parseq table is diffused. It may therefore easily be used with just a fixed value for 'strengh' like perhaps '0.4'.
-            </ol>
-            <div>Deforum Instructions:</div>
-            <span>Select one of the following key index distributions:</span>
-            <ol style="list-style-type: none; padding-left: 20px;">
-                <li>{bars_mark} Parseq Only: Only frames with an entry in the Parseq table are diffused. Actual cadence settings are ignored and all frames not defined in Parseq are handled as if they would be cadence frames.</li>
-                <li>{bars_mark} Uniform with Parseq: Calculates uniform cadence distribution but rearranges them to preserve proper Parseq synchronization at high cadence. Cadence may be understood as 'pseudo cadence'. A cadence value of '30' may more correctly be understood as 'about 30' in this mode.</li>
-            </ol>
-        </p>""")
-        neocore_key_index_distribution = gr.Dropdown(
-            label="Select Key Index Distribution:",
-            choices=["Parseq Only", "Uniform with Parseq"],  # TODO use KeyIndexDistribution enum
-            value="Parseq Only")
-        gr.HTML(value=f"""<p>
-            <div>Currently required settings to avoid errors or undefined behaviour:</div>
-            <ol style="list-style-type: none; padding-left: 20px;">
-                <li>{warn_mark} In both cases set "cadence" to a value larger than 1 and make sure it's the same in Parseq and in Deforum.</li>
-                <li>{warn_mark} Go to the Deforum "Keyframe" tab, select the "Coherence" tab and set everything to 'None'.</li>
-            </ol>
-            <div>Recommendations:</div>
-            <ol style="list-style-type: none; padding-left: 20px;">
-                <li>{bulb_mark} "'Uniform with Parseq' is able to handle high cadence values, but the number of actually diffused frames is still dictated by the cadence setting.<li>
-                <li>{bulb_mark} "Consider rendering at 60FPS. It shouldn't take much longer since it doesn't affect the number of diffusions."<li>
-                <li>{bulb_mark} "In 'Uniform with Parseq' mode, consider a cadence of 30, at 60FPS it will ensure two diffusions per seconds, which goes well for a clip synchonized to a 120BPM tune."<li>
-            </ol>
-            <div>Should be working:</div>
-            <ol style="list-style-type: none; padding-left: 20px;">
-                <li>{check_mark} Parseq based key frame distributions. Currently the only reason to use this build.</li>
-                <li>{check_mark} Subtitle generation (but may require manual cleanup to remove residual cadence values).</li>
-                <li>{check_mark} Depth warping.</li>
-            </ol>
-            <div>Currently untested or not working:</div>
-            <ol style="list-style-type: none; padding-left: 20px;">
-                <li>{cross_mark} Hybrid Video.</li>
-                <li>{cross_mark} Optical Flow and Color Coherence.</li>
-                <li>{cross_mark} Control Net (idk?).</li>
-            </ol>
-            <div>TL;DR</div>
-            <ol style="list-style-type: none; padding-left: 20px;">
-                <li>Setup Parseq workflow at 60 FPS with cadence 30, ideally with audio sync and 3d rotation etc, then set a fixed value for 'strength' at perhaps 0.4</li>
-                <li>Setup Deforum with 60 FPS and cadence 30 as well and disable everything in the "Keyframes" - "Coherence" tab. Then do the rest as usual and go...</li>
-            </ol></p>""")
-        return {k: v for k, v in {**locals(), **vars()}.items()}
+    gr.HTML(value=f"""<p>
+        <span>Parseq keyframe redistribution ensures that every frame in the Parseq table is diffused.</span>
+        <span>It may easily be used at high FPS (e.g. '60') with just a fixed value for 'strength' in Parseq \
+        (e.g. '0.4' for all frames).</span>
+        <ol style="list-style-type: none; padding-left: 20px;">
+            <li>{bars_mark} Off: Key frames are not redistributed. Cadence settings are fully respected.</li>
+            <li>{bars_mark} Parseq Only: Only frames with an entry in the Parseq table are diffused. \
+            Actual cadence settings are ignored and all frames not defined in Parseq are handled \
+            as if they would be cadence frames. Recommended to be used with high FPS settings.</li>
+            <li>{bars_mark} Uniform with Parseq: Calculates uniform cadence distribution \
+            but rearranges them to preserve proper Parseq synchronization at high cadence (e.g. '30'). \
+            Cadence may be understood as 'pseudo cadence'. \
+            A cadence value of '30' may more correctly be understood as 'about 30' in this mode.</li>
+        </ol>
+    </p>""")
