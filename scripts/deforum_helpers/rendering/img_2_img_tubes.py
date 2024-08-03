@@ -7,6 +7,7 @@ from cv2.typing import MatLike
 
 from .data.frame.key_frame import KeyFrame
 from .data.render_data import RenderData
+from .util import image_utils
 from .util.call.hybrid import call_hybrid_composite
 from .util.fun_utils import tube
 from ..colors import maintain_colors
@@ -31,18 +32,6 @@ ImageTube = Callable[[MatLike], MatLike]
 PilImageTube = Callable[[Image.Image], Image.Image]
 
 
-def _bgr_to_rgb(bgr_img):
-    return cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
-
-
-def _numpy_to_pil(np_image: MatLike) -> Image.Image:
-    return Image.fromarray(_bgr_to_rgb(np_image))
-
-
-def _pil_to_numpy(pil_image: Image.Image) -> MatLike:
-    return np.array(pil_image)
-
-
 def frame_transformation_tube(data: RenderData, key_frame: KeyFrame) -> ImageTube:
     # make sure `img` stays the last argument in each call.
     return tube(lambda img: key_frame.apply_frame_warp_transform(data, img),
@@ -64,7 +53,7 @@ def noise_transformation_tube(data: RenderData, key_frame: KeyFrame) -> ImageTub
 
 
 def optical_flow_redo_tube(data: RenderData, key_frame: KeyFrame, optical_flow) -> ImageTube:
-    return tube(lambda img: _bgr_to_rgb(img),
+    return tube(lambda img: image_utils.bgr_to_rgb(img),
                 lambda img: image_transform_optical_flow(
                     img, get_flow_from_images(data.images.previous, img, optical_flow, data.animation_mode.raft_model),
                     key_frame.step_data.redo_flow_factor))
@@ -75,7 +64,7 @@ def conditional_hybrid_video_after_generation_tube(key_frame: KeyFrame) -> PilIm
     data = key_frame.render_data
     step_data = key_frame.step_data
     return tube(lambda img: call_hybrid_composite(data, data.indexes.frame.i, img, step_data.hybrid_comp_schedules),
-                lambda img: _numpy_to_pil(img),
+                lambda img: image_utils.numpy_to_pil(img),
                 is_do_process=lambda: data.indexes.is_not_first_frame() and data.is_hybrid_composite_after_generation())
 
 
@@ -83,16 +72,16 @@ def conditional_extra_color_match_tube(data: RenderData) -> PilImageTube:
     # color matching on first frame is after generation, color match was collected earlier,
     # so we do an extra generation to avoid the corruption introduced by the color match of first output
     return tube(lambda img: maintain_colors(img, data.images.color_match, data.args.anim_args.color_coherence),
-                lambda img: _numpy_to_pil(_pil_to_numpy(img)),  # TODO? remove
+                lambda img: image_utils.numpy_to_pil(image_utils.pil_to_numpy(img)),  # TODO? remove
                 lambda img: maintain_colors(img, data.images.color_match, data.args.anim_args.color_coherence),
-                lambda img: _numpy_to_pil(img),
+                lambda img: image_utils.numpy_to_pil(img),
                 is_do_process=lambda: data.indexes.is_first_frame() and data.is_initialize_color_match(
                     data.images.color_match))
 
 
 def conditional_color_match_tube(key_frame: KeyFrame) -> ImageTube:
     # on strength 0, set color match to generation
-    return tube(lambda img: _bgr_to_rgb(np.asarray(img)),
+    return tube(lambda img: image_utils.bgr_to_rgb(np.asarray(img)),
                 is_do_process=lambda: key_frame.render_data.is_do_color_match_conversion(key_frame))
 
 
