@@ -590,15 +590,19 @@ def create_keyframe_redistribution_info():
     bars_mark = "&#x1F4CA;"
     gr.HTML(value=f"""<p>
         <span>Parseq keyframe redistribution ensures that every frame in the Parseq table is diffused.</span>
-        <span>It may easily be used at high FPS (e.g. '60') with just a fixed value for 'strength' in Parseq \
-        (e.g. '0.4' for all frames).</span>
+        <span>It may easily be used at high FPS with just a fixed value for 'strength' in Parseq \
+        (e.g. '0.33' for all frames with no logic to detect dips).</span>
+        <span>Since keyframe redistribution allows for Parseq synchronization at high or no cadence, \
+        the generation can be performed much faster compared to a traditional low cadence setup.</span>
+        <span>Resulting videos tend to be less jittery at high or no cadence, \
+        but may introduce 'depth smear' when combined with fast movement.</span>
         <ol style="list-style-type: none; padding-left: 20px;">
             <li>{bars_mark} Off: Key frames are not redistributed. Cadence settings are fully respected.</li>
             <li>{bars_mark} Parseq Only: Only frames with an entry in the Parseq table are diffused. \
             Actual cadence settings are ignored and all frames not defined in Parseq are handled \
-            as if they would be cadence frames. Recommended to be used with high FPS settings.</li>
+            as if they were cadence frames. Recommended to be used at high FPS settings (e.g. '60').</li>
             <li>{bars_mark} Uniform with Parseq: Calculates uniform cadence distribution \
-            but rearranges them to preserve proper Parseq synchronization at high cadence (e.g. '30'). \
+            but rearranges some keyframes to preserve proper Parseq synchronization at high cadence (e.g. '30'). \
             Cadence may be understood as 'pseudo cadence'. \
             A cadence value of '30' may more correctly be understood as 'about 30' in this mode.</li>
         </ol>
