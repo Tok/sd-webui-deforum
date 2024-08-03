@@ -7,10 +7,10 @@ from cv2.typing import MatLike
 
 from .data.frame.key_frame import KeyFrame
 from .data.render_data import RenderData
-from .util.call.hybrid import call_get_flow_from_images, call_hybrid_composite
+from .util.call.hybrid import call_hybrid_composite
 from .util.fun_utils import tube
 from ..colors import maintain_colors
-from ..hybrid_video import image_transform_optical_flow
+from ..hybrid_video import get_flow_from_images, image_transform_optical_flow
 from ..masks import do_overlay_mask
 
 """
@@ -54,7 +54,7 @@ def optical_flow_redo_tube(data: RenderData, key_frame: KeyFrame, optical_flow) 
     return tube(lambda img: cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR),
                 lambda img: cv2.cvtColor(img, cv2.COLOR_BGR2RGB),
                 lambda img: image_transform_optical_flow(
-                    img, call_get_flow_from_images(data, data.images.previous, img, optical_flow),
+                    img, get_flow_from_images(data.images.previous, img, optical_flow, data.animation_mode.raft_model),
                     key_frame.step_data.redo_flow_factor))
 
 

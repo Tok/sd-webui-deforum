@@ -1,6 +1,5 @@
 from ....hybrid_video import (
     # Functions related to flow calculation
-    get_flow_from_images,
     get_flow_for_hybrid_motion,
     get_flow_for_hybrid_motion_prev,
 
@@ -10,12 +9,6 @@ from ....hybrid_video import (
 
     # Other hybrid functions
     hybrid_composite)
-
-
-def call_get_flow_from_images(init, prev_image, next_image, cadence):
-    # cadence is currently either "optical_flow_redo_generation" or "init.args.anim_args.optical_flow_cadence"
-    # TODO try to init "optical_flow_redo_generation" early, then remove the "cadence" arg again
-    return get_flow_from_images(prev_image, next_image, cadence, init.animation_mode.raft_model)
 
 
 def call_get_flow_for_hybrid_motion_prev(init, i, image):
