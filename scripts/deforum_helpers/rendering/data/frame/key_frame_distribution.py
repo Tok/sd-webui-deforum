@@ -6,22 +6,26 @@ from ...util import log_utils
 
 
 class KeyFrameDistribution(Enum):
+    OFF = "Off"
     PARSEQ_ONLY = "Parseq Only"  # cadence is ignored. all frames not present in the Parseq table are handled as tweens.
     UNIFORM_WITH_PARSEQ = "Uniform with Parseq"  # similar to uniform, but parseq key frame diffusion is enforced.
-    UNIFORM_SPACING = "Uniform Spacing"  # distance defined by cadence
-    RANDOM_SPACING = "Random Spacing"  # distance loosely based on cadence (poc)
-    RANDOM_PLACEMENT = "Random Placement"  # no relation to cadence (poc)
 
     @staticmethod
     def from_UI_tab(data):
-        is_uniform_with_parseq = data.args.anim_args.neocore_key_index_distribution == "Uniform with Parseq"
-        return (KeyFrameDistribution.UNIFORM_WITH_PARSEQ
-                if is_uniform_with_parseq
-                else KeyFrameDistribution.PARSEQ_ONLY)
+        redistribution = data.args.parseq_args.parseq_key_frame_redistribution
+        match redistribution:
+            case "Off":
+                return KeyFrameDistribution.OFF
+            case "Parseq Only (no cadence)":
+                return KeyFrameDistribution.PARSEQ_ONLY
+            case "Uniform with Parseq (pseudo-cadence)":
+                return KeyFrameDistribution.UNIFORM_WITH_PARSEQ
+            case _:
+                raise ValueError(f"Invalid parseq_key_frame_redistribution from UI: {redistribution}")
 
     @staticmethod
     def default():
-        return KeyFrameDistribution.PARSEQ_ONLY  # same as UNIFORM_SPACING, if no Parseq keys are present.
+        return KeyFrameDistribution.OFF
 
     def calculate(self, key_frames, start_index, max_frames, num_key_steps, parseq_adapter) -> List[int]:
         key_indices: List[int] = self._calculate(start_index, max_frames, num_key_steps, parseq_adapter)
@@ -31,18 +35,15 @@ class KeyFrameDistribution(Enum):
 
     def _calculate(self, start_index, max_frames, num_key_steps, parseq_adapter) -> List[int]:
         match self:
-            case KeyFrameDistribution.PARSEQ_ONLY:
+            case KeyFrameDistribution.PARSEQ_ONLY:  # same as UNIFORM_SPACING, if no Parseq keys are present.
                 return self._parseq_only_indexes(start_index, max_frames, num_key_steps, parseq_adapter)
             case KeyFrameDistribution.UNIFORM_WITH_PARSEQ:
                 return self._uniform_with_parseq_indexes(start_index, max_frames, num_key_steps, parseq_adapter)
-            case KeyFrameDistribution.UNIFORM_SPACING:
-                return self._uniform_indexes(start_index, max_frames, num_key_steps)
-            case KeyFrameDistribution.RANDOM_SPACING:
-                return self._random_spacing_indexes(start_index, max_frames, num_key_steps)
-            case KeyFrameDistribution.RANDOM_PLACEMENT:
-                return self._random_placement_indexes(start_index, max_frames, num_key_steps)
+            case KeyFrameDistribution.OFF:
+                log_utils.warn("Called new core without key frame redistribution. Using 'PARSEQ_ONLY'.")
+                return self._parseq_only_indexes(start_index, max_frames, num_key_steps, parseq_adapter)
             case _:
-                raise ValueError(f"Invalid KeyIndexDistribution: {self}")
+                raise ValueError(f"Invalid KeyFrameDistribution: {self}")
 
     @staticmethod
     def _uniform_indexes(start_index, max_frames, num_key_steps):
@@ -84,28 +85,3 @@ class KeyFrameDistribution(Enum):
         key_frames.sort()
         assert len(key_frames) == num_key_steps
         return key_frames
-
-    @staticmethod
-    def _random_spacing_indexes(start_index, max_frames, num_key_steps):
-        uniform_indexes = KeyFrameDistribution._uniform_indexes(start_index, max_frames, num_key_steps)
-        indexes = [start_index + 1, max_frames]  # Enforce first and last indices
-        total_spacing = max_frames - start_index - 1  # Calculate initial total spacing
-        noise_factor = 0.5  # Higher value creates more variation
-        for i in range(1, num_key_steps - 1):
-            base_index = uniform_indexes[i]
-            noise = random.uniform(-noise_factor, noise_factor) * (total_spacing / (num_key_steps - 1))
-            index = int(base_index + noise)
-            index = max(start_index + 1, min(index, max_frames - 1))
-            indexes.append(index)
-            total_spacing -= index - indexes[i - 1]
-        indexes.sort(key=lambda key_index: key_index)
-        return indexes
-
-    @staticmethod
-    def _random_placement_indexes(start_index, max_frames, num_key_steps):
-        indexes = [start_index + 1, max_frames]  # Enforce first and last indices
-        for _ in range(1, num_key_steps - 1):
-            index = random.randint(start_index + 1, max_frames - 1)
-            indexes.append(index)
-        indexes.sort(key=lambda i: i)
-        return indexes

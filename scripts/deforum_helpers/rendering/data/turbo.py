@@ -4,10 +4,11 @@ from cv2.typing import MatLike
 
 from .subtitle import Srt
 from ..util.call.anim import call_anim_frame_warp
-from ..util.call.hybrid import call_get_flow_from_images, call_get_flow_for_hybrid_motion_prev, \
-    call_get_flow_for_hybrid_motion, call_get_matrix_for_hybrid_motion, call_get_matrix_for_hybrid_motion_prev
+from ..util.call.hybrid import (call_get_flow_for_hybrid_motion_prev, call_get_flow_for_hybrid_motion,
+                                call_get_matrix_for_hybrid_motion, call_get_matrix_for_hybrid_motion_prev)
 from ..util.call.resume import call_get_resume_vars
-from ...hybrid_video import image_transform_ransac, image_transform_optical_flow, rel_flow_to_abs_flow
+from ...hybrid_video import (get_flow_from_images, image_transform_ransac,
+                             image_transform_optical_flow, rel_flow_to_abs_flow)
 
 
 @dataclass(init=True, frozen=False, repr=False, eq=True)
@@ -99,8 +100,8 @@ class Turbo:
     def advance_optical_flow_cadence_before_animation_warping(self, data, last_frame, tween_frame):
         if data.is_3d_or_2d_with_optical_flow():
             if self._is_do_flow(data, tween_frame):
-                cadence = "RAFT"  # FIXME data.args.anim_args.optical_flow_cadence
-                flow = call_get_flow_from_images(data, self.prev.image, self.next.image, cadence)
+                cadence = data.args.anim_args.optical_flow_cadence
+                flow = get_flow_from_images(self.prev.image, self.next.image, cadence, data.animation_mode.raft_model)
                 tween_frame.cadence_flow = (flow / 2)
             if tween_frame.has_cadence():
                 self.advance_optical_flow(tween_frame)
