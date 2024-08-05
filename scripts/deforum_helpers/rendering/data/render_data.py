@@ -97,14 +97,23 @@ class RenderData:
     def is_3d_or_2d(self):
         return self.args.anim_args.animation_mode in ['2D', '3D']
 
+    def has_parseq_keyframe_redistribution(self):
+        return self.args.parseq_args.parseq_key_frame_redistribution != "Off"
+
     def has_optical_flow_cadence(self):
         return self.args.anim_args.optical_flow_cadence != 'None'
+
+    def has_optical_flow_redo(self):
+        return self.args.anim_args.optical_flow_redo_generation != 'None'
 
     def is_3d_or_2d_with_optical_flow(self):
         return self.is_3d_or_2d() and self.has_optical_flow_cadence()
 
     def is_3d_with_med_or_low_vram(self):
         return self.is_3d() and memory_utils.is_low_or_med_vram()
+
+    def has_keyframe_redistribution(self):
+        return self.args.parseq_args
 
     def width(self) -> int:
         return self.args.args.W
@@ -189,12 +198,9 @@ class RenderData:
     def has_positive_diffusion_redo(self):
         return self.diffusion_redo_as_int() > 0
 
-    def optical_flow_redo_generation(self):
-        return self.args.anim_args.optical_flow_redo_generation
-
     def optical_flow_redo_generation_if_not_in_preview_mode(self):
         is_not_preview = self.is_not_in_motion_preview_mode()
-        return self.optical_flow_redo_generation() if is_not_preview else 'None'  # don't replace with None value
+        return self.args.anim_args.optical_flow_redo_generation if is_not_preview else 'None'
 
     def is_do_color_match_conversion(self, step):
         is_legacy_cm = self.args.anim_args.legacy_colormatch

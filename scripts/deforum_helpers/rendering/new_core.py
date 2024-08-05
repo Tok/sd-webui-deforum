@@ -15,6 +15,7 @@ from .util import filename_utils, image_utils, log_utils, memory_utils, web_ui_u
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
     log_utils.debug("Using new render core.")
     data = RenderData.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, root)
+    _check_experimental_render_conditions(data)
     web_ui_utils.init_job(data)
     key_frames = KeyFrame.create_all_frames(data, KeyFrameDistribution.from_UI_tab(data))
     run_render_animation(data, key_frames)
@@ -73,12 +74,19 @@ def emit_tweens(data, key_step):
     [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube) for tween in tweens]
 
 
+def _check_experimental_render_conditions(data):
+    if data.has_parseq_keyframe_redistribution():
+        if data.has_optical_flow_cadence():
+            log_utils.warn("Using Parseq keyframe redistribution with optical flow cadence. Results may be unexpected.")
+        if data.has_optical_flow_redo():
+            log_utils.warn("Using Parseq keyframe redistribution with optical flow redo. Results may be unexpected.")
+
+
 def _update_pseudo_cadence(data, value):
     data.turbo.cadence = value
     data.parseq_adapter.cadence = value
     data.parseq_adapter.a1111_cadence = value
     data.args.anim_args.diffusion_cadence = value
-    data.args.anim_args.optical_flow_cadence = value
     data.args.anim_args.cadence_flow_factor_schedule = value
 
 
