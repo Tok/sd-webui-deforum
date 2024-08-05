@@ -15,13 +15,13 @@ from .util import filename_utils, image_utils, log_utils, memory_utils, web_ui_u
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
     log_utils.debug("Using new render core.")
     data = RenderData.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, root)
+    _check_experimental_render_conditions(data)
     web_ui_utils.init_job(data)
     key_frames = KeyFrame.create_all_frames(data, KeyFrameDistribution.from_UI_tab(data))
     run_render_animation(data, key_frames)
     data.animation_mode.unload_raft_and_depth_model()
 
 
-# @log_utils.with_suppressed_table_printing
 def run_render_animation(data: RenderData, key_frames: List[KeyFrame]):
     for key_frame in key_frames:
         if is_resume(data, key_frame):
@@ -73,18 +73,28 @@ def emit_tweens(data, key_step):
     [tween.emit_frame(key_step, grayscale_tube, overlay_mask_tube) for tween in tweens]
 
 
+def _check_experimental_render_conditions(data):
+    if data.has_parseq_keyframe_redistribution():
+        msg = "Using Parseq keyframe redistribution with {method}. Results may be unexpected."
+        if data.has_optical_flow_cadence():
+            log_utils.warn(msg.format(method="optical flow cadence"))
+        if data.has_optical_flow_redo():
+            log_utils.warn(msg.format(method="optical flow generation"))
+
+
 def _update_pseudo_cadence(data, value):
     data.turbo.cadence = value
     data.parseq_adapter.cadence = value
     data.parseq_adapter.a1111_cadence = value
     data.args.anim_args.diffusion_cadence = value
-    data.args.anim_args.optical_flow_cadence = value
     data.args.anim_args.cadence_flow_factor_schedule = value
 
 
 def _tweens_with_progress(key_step):
     # only use tween progress bar when extra console output (aka "dev mode") is disabled.
-    return (tqdm(key_step.tweens, position=1, desc="Tweens progress", file=progress_print_out,
-                 disable=cmd_opts.disable_console_progressbars, leave=False, colour='#FFA468')
-            if not log_utils.is_verbose()
-            else key_step.tweens)
+    if not log_utils.is_verbose():
+        log_utils.clear_previous_line()
+        return tqdm(key_step.tweens, desc="Tweens progress", file=progress_print_out,
+                    disable=cmd_opts.disable_console_progressbars, colour='#FFA468')
+    else:
+        return key_step.tweens

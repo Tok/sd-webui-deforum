@@ -53,7 +53,8 @@ def noise_transformation_tube(data: RenderData, key_frame: KeyFrame) -> ImageTub
 
 
 def optical_flow_redo_tube(data: RenderData, key_frame: KeyFrame, optical_flow) -> ImageTube:
-    return tube(lambda img: image_utils.bgr_to_rgb(img),
+    return tube(lambda img: image_utils.pil_to_numpy(img),
+                lambda img: image_utils.bgr_to_rgb(img),
                 lambda img: image_transform_optical_flow(
                     img, get_flow_from_images(data.images.previous, img, optical_flow, data.animation_mode.raft_model),
                     key_frame.step_data.redo_flow_factor))

@@ -596,6 +596,8 @@ def create_keyframe_redistribution_info():
         the generation can be performed much faster compared to a traditional low cadence setup.</span>
         <span>Resulting videos tend to be less jittery at high or no cadence, \
         but may introduce 'depth smear' when combined with fast movement.</span>
+        <span>Optical Flow related settings may not behave as expected and are recommended to be turned off \
+        when keyframe redistribution is used (see tab "Keyframes", sub-tab "Coherence").</span>
         <ol style="list-style-type: none; padding-left: 20px;">
             <li>{bars_mark} Off: Key frames are not redistributed. Cadence settings are fully respected.</li>
             <li>{bars_mark} Parseq Only: Only frames with an entry in the Parseq table are diffused. \

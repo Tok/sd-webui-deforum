@@ -100,13 +100,12 @@ class Turbo:
     def advance_optical_flow_cadence_before_animation_warping(self, data, last_frame, tween_frame):
         if data.is_3d_or_2d_with_optical_flow():
             if self._is_do_flow(data, tween_frame):
-                cadence = data.args.anim_args.optical_flow_cadence
-                flow = get_flow_from_images(self.prev.image, self.next.image, cadence, data.animation_mode.raft_model)
-                tween_frame.cadence_flow = (flow / 2)
+                method = data.args.anim_args.optical_flow_cadence  # string containing the flow method (e.g. "RAFT").
+                flow = get_flow_from_images(self.prev.image, self.next.image, method, data.animation_mode.raft_model)
+                tween_frame.cadence_flow = flow / len(last_frame.tweens)
             if tween_frame.has_cadence():
                 self.advance_optical_flow(tween_frame)
-                flow_factor = 1.0  # FIXME..
-                # flow_factor = 1.0 / (len(last_frame.tweens) + 1.0)
+                flow_factor = 1.0
                 self.next.image = image_transform_optical_flow(self.next.image, -tween_frame.cadence_flow, flow_factor)
 
     def _is_do_flow(self, data, tween_frame):
