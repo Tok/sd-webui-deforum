@@ -7,8 +7,6 @@ import numexpr
 import numpy as np
 import pandas as pd
 from PIL import Image
-# noinspection PyUnresolvedReferences
-from modules.shared import opts
 
 from .anim import AnimationKeys, AnimationMode
 from .images import Images
@@ -37,7 +35,6 @@ class RenderInitArgs:
     video_args: Any = None
     controlnet_args: Any = None
     loop_args: LoopArgs = None
-    opts: Any = None  # opts were passed from modules.shared.  # TODO import and access directly?
     root: RootArgs = None
 
 
@@ -61,12 +58,12 @@ class RenderData:
 
     @staticmethod
     def create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, root) -> 'RenderData':
-        ri_args = RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, opts, root)
+        ri_args = RenderInitArgs(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, root)
 
         output_directory = args.outdir
         is_use_mask = args.use_mask
         parseq_adapter = RenderData.create_parseq_adapter(ri_args)
-        srt = Srt.create_if_active(opts.data, output_directory, root.timestring, video_args.fps)
+        srt = Srt.create_if_active(output_directory, root.timestring, video_args.fps)
         animation_keys = AnimationKeys.from_args(ri_args, parseq_adapter, args.seed)
         animation_mode = AnimationMode.from_args(ri_args)
         prompt_series = RenderData.select_prompts(parseq_adapter, anim_args, animation_keys, root)
@@ -164,9 +161,6 @@ class RenderData:
 
     def has_video_input(self):
         return self.animation_mode.has_video_input
-
-    def has_img2img_fix_steps(self):
-        return 'img2img_fix_steps' in self.args.opts.data and self.args.opts.data["img2img_fix_steps"]
 
     def cadence(self) -> int:
         return int(self.args.anim_args.diffusion_cadence)
@@ -306,7 +300,7 @@ class RenderData:
             # print(f"cadence_flow_factor: {step.step_data.cadence_flow_factor}")
 
         self.animation_keys = AnimationKeys.from_args(self.args, self.parseq_adapter, self.seed)
-        opt_utils.setup(self, step.schedule)
+        opt_utils.setup(step.schedule)
         memory_utils.handle_vram_if_depth_is_predicted(data)
 
     @staticmethod

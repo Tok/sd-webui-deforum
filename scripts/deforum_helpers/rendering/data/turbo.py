@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from cv2.typing import MatLike
 
-from .subtitle import Srt
+from ..util import opt_utils
 from ..util.call.anim import call_anim_frame_warp
 from ..util.call.hybrid import (call_get_flow_for_hybrid_motion_prev, call_get_flow_for_hybrid_motion,
                                 call_get_matrix_for_hybrid_motion, call_get_matrix_for_hybrid_motion_prev)
@@ -168,8 +168,8 @@ class Turbo:
     def is_first_step(self) -> bool:
         return self.steps == 1
 
-    def is_first_step_with_subtitles(self, render_data) -> bool:
-        return self.is_first_step() and Srt.is_subtitle_generation_active(render_data.args.opts.data)
+    def is_first_step_with_subtitles(self) -> bool:
+        return self.is_first_step() and opt_utils.is_subtitle_generation_active()
 
     def is_emit_in_between_frames(self) -> bool:
         return self.steps > 1

@@ -1,5 +1,4 @@
-# noinspection PyUnresolvedReferences
-from modules.shared import opts
+from . import opt_utils
 
 ESC = "\033["  # ANSI escape character, same as "\x1b["
 TERM = "m"  # ANSI terminator
@@ -25,11 +24,6 @@ WHITE = f"{ESC}37{TERM}"
 
 BOLD = f"{ESC}1{TERM}"
 UNDERLINE = f"{ESC}4{TERM}"
-
-
-def is_verbose():
-    """Checks if extra console output is enabled in deforum settings."""
-    return opts.data.get("deforum_debug_mode_enabled", False)
 
 
 def clear_previous_line():
@@ -106,6 +100,6 @@ def warn(s: str):
 
 
 def debug(s: str):
-    if is_verbose():
+    if opt_utils.is_verbose():
         eye_catcher = "###"
         print(f"{YELLOW}{BOLD}{eye_catcher} Debug: {RESET_COLOR}{s}")

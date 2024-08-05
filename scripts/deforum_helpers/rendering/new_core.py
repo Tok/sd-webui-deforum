@@ -9,7 +9,7 @@ from tqdm import tqdm
 from . import img_2_img_tubes
 from .data.frame import KeyFrameDistribution, KeyFrame
 from .data.render_data import RenderData
-from .util import filename_utils, image_utils, log_utils, memory_utils, web_ui_utils
+from .util import filename_utils, image_utils, log_utils, opt_utils, memory_utils, web_ui_utils
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
@@ -92,7 +92,7 @@ def _update_pseudo_cadence(data, value):
 
 def _tweens_with_progress(key_step):
     # only use tween progress bar when extra console output (aka "dev mode") is disabled.
-    if not log_utils.is_verbose():
+    if not opt_utils.is_verbose():
         log_utils.clear_previous_line()
         return tqdm(key_step.tweens, desc="Tweens progress", file=progress_print_out,
                     disable=cmd_opts.disable_console_progressbars, colour='#FFA468')

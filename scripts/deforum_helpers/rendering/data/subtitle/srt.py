@@ -2,6 +2,8 @@ import os
 
 from dataclasses import dataclass
 from decimal import Decimal
+
+from ...util import opt_utils
 from ....subtitle_handler import init_srt_file
 
 
@@ -11,12 +13,8 @@ class Srt:
     frame_duration: Decimal
 
     @staticmethod
-    def is_subtitle_generation_active(opts_data):
-        return opts_data.get("deforum_save_gen_info_as_srt", False)
-
-    @staticmethod
-    def create_if_active(opts_data, out_dir: str, timestring: str, fps: float) -> 'Srt | None':
-        if not Srt.is_subtitle_generation_active(opts_data):
+    def create_if_active(out_dir: str, timestring: str, fps: float) -> 'Srt | None':
+        if not opt_utils.is_subtitle_generation_active():
             return None
         else:
             # create .srt file and set timeframe mechanism using FPS

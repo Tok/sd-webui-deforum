@@ -103,7 +103,7 @@ class KeyFrame:
 
     def maybe_write_frame_subtitle(self):
         data = self.render_data
-        if data.turbo.is_first_step_with_subtitles(data):
+        if data.turbo.is_first_step_with_subtitles():
             params_string = opt_utils.generation_info_for_subtitles(data)
             self.subtitle_params_to_print = params_string
             self.subtitle_params_string = call_format_animation_params(data, data.indexes.frame.i, params_string)

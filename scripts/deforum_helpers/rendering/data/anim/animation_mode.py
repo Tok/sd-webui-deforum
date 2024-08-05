@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ...util.memory_utils import keep_3d_models_in_vram
+from ...util import opt_utils
 from ....RAFT import RAFT
 from ....hybrid_video import hybrid_generation
 
@@ -66,9 +66,9 @@ class AnimationMode:
         return RAFT() if is_load_raft else None
 
     @staticmethod
-    def load_depth_model_if_active(args, anim_args, opts):
+    def load_depth_model_if_active(args, anim_args):
         return AnimationMode._is_load_depth_model_for_3d(args, anim_args) \
-            if opts.data.get("deforum_keep_3d_models_in_vram", False) else None
+            if opt_utils.keep_3d_models_in_vram() else None
 
     @staticmethod
     def initial_hybrid_files(sa) -> list[Path]:
@@ -81,14 +81,15 @@ class AnimationMode:
 
     @staticmethod
     def from_args(step_args):
-        sa = step_args
+        sa = step_args  # RenderInitArgs
         # path required by hybrid functions, even if hybrid_comp_save_extra_frames is False
         hybrid_input_files: Any = os.path.join(sa.args.outdir, 'hybridframes')
+        previous_flow = None  # FIXME?
         return AnimationMode(
             AnimationMode._has_video_input(sa.anim_args),
             AnimationMode.initial_hybrid_files(sa),
             hybrid_input_files,
-            None,
-            keep_3d_models_in_vram(sa),
-            AnimationMode.load_depth_model_if_active(sa.args, sa.anim_args, sa.opts),
+            previous_flow,
+            opt_utils.keep_3d_models_in_vram(),
+            AnimationMode.load_depth_model_if_active(sa.args, sa.anim_args),
             AnimationMode.load_raft_if_active(sa.anim_args, sa.args))
