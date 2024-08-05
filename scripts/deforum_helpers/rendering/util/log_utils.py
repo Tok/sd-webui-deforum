@@ -1,22 +1,30 @@
 # noinspection PyUnresolvedReferences
 from modules.shared import opts
 
-COLOUR_RGB = '\x1b[38;2;%d;%d;%dm'
-RED = "\033[31m"
-ORANGE = "\033[38;5;208m"
-YELLOW = "\033[33m"
-GREEN = "\033[32m"
-CYAN = "\033[36m"
-BLUE = "\033[34m"
-INDIGO = "\033[38;5;66m"
-VIOLET = "\033[38;5;130m"
-BLACK = "\033[30m"
-WHITE = "\033[37m"
+ESC = "\033["  # ANSI escape character, same as "\x1b["
+TERM = "m"  # ANSI terminator
 
-BOLD = "\033[1m"
-UNDERLINE = "\033[4m"
+EIGHT_BIT = "38;5;"
+TEXT = "38;2;"
+BACKGROUND = "48;2;"
 
-RESET = "\x1b[0m"
+COLOUR_RGB = f"{ESC}{TEXT}%d;%d;%d{TERM}"
+BG_COLOUR_RGB = f"{ESC}{BACKGROUND}%d;%d;%d{TERM}"
+RESET_COLOR = f"{ESC}0{TERM}"
+
+RED = f"{ESC}31{TERM}"
+ORANGE = f"{ESC}{EIGHT_BIT}208{TERM}"
+YELLOW = f"{ESC}33{TERM}"
+GREEN = f"{ESC}32{TERM}"
+CYAN = f"{ESC}36{TERM}"
+BLUE = f"{ESC}34{TERM}"
+INDIGO = f"{ESC}{EIGHT_BIT}66{TERM}"
+VIOLET = f"{ESC}{EIGHT_BIT}130{TERM}"
+BLACK = f"{ESC}30{TERM}"
+WHITE = f"{ESC}37{TERM}"
+
+BOLD = f"{ESC}1{TERM}"
+UNDERLINE = f"{ESC}4{TERM}"
 
 
 def is_verbose():
@@ -25,7 +33,7 @@ def is_verbose():
 
 
 def clear_previous_line():
-    print("\033[F\033[K", end="")  # "\033[" is the ANSI escape sequence, "F" is cursor up, "K" is clear line.
+    print(f"{ESC}F{ESC}K", end="")  # "F" is cursor up, "K" is clear line.
 
 
 def print_tween_frame_from_to_info(key_step, is_disabled=True):
@@ -36,12 +44,12 @@ def print_tween_frame_from_to_info(key_step, is_disabled=True):
         if end_i > 0:
             formatted_values = [f"{val:.2f}" for val in tween_values]
             count = end_i - start_i + 1
-            print(f"{ORANGE}Creating in-between: {RESET}{count} frames ({start_i}-->{end_i}){formatted_values}")
+            print(f"{ORANGE}Creating in-between: {RESET_COLOR}{count} frames ({start_i}-->{end_i}){formatted_values}")
 
 
 def print_animation_frame_info(i, max_frames):
     print("")
-    print(f"{CYAN}Animation frame: {RESET}{i}/{max_frames}")
+    print(f"{CYAN}Animation frame: {RESET_COLOR}{i}/{max_frames}")
 
 
 def print_tween_frame_info(data, indexes, cadence_flow, tween, is_disabled=True):
@@ -79,7 +87,7 @@ def print_key_step_debug_info_if_verbose(key_steps):
 
 
 def print_warning_generate_returned_no_image():
-    print(f"{YELLOW}Warning: {RESET}Generate returned no image. Skipping to next iteration.")
+    print(f"{YELLOW}Warning: {RESET_COLOR}Generate returned no image. Skipping to next iteration.")
 
 
 def print_cuda_memory_state(cuda):
@@ -93,10 +101,11 @@ def info(s: str):
 
 
 def warn(s: str):
-    print(f"{ORANGE}Warn: {RESET}{s}")
+    eye_catcher = "###"
+    print(f"{ORANGE}{BOLD}{eye_catcher} Warning: {RESET_COLOR}{s}")
 
 
 def debug(s: str):
     if is_verbose():
         eye_catcher = "###"
-        print(f"{YELLOW}{BOLD}{eye_catcher} Debug: {RESET}{s}")
+        print(f"{YELLOW}{BOLD}{eye_catcher} Debug: {RESET_COLOR}{s}")
