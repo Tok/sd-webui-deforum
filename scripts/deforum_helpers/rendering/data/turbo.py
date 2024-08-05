@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from cv2.typing import MatLike
 
-from ..util import opt_utils
+from ..util import opt_utils, log_utils
 from ..util.call.anim import call_anim_frame_warp
 from ..util.call.hybrid import (call_get_flow_for_hybrid_motion_prev, call_get_flow_for_hybrid_motion,
                                 call_get_matrix_for_hybrid_motion, call_get_matrix_for_hybrid_motion_prev)
@@ -57,12 +57,12 @@ class Turbo:
         self.next.image = image_transform_optical_flow(self.next.image, flow, flow_factor)
 
     def advance_optical_tween_flow(self, indexes, last_frame, flow):
-        ff = last_frame.step_data.flow_factor()
+        flow_factor = last_frame.step_data.flow_factor()
         i = indexes.tween.i
         if self.is_advance_prev(i):
-            self.prev.image = image_transform_optical_flow(self.prev.image, flow, ff)
+            self.prev.image = image_transform_optical_flow(self.prev.image, flow, flow_factor)
         if self.is_advance_next(i):
-            self.next.image = image_transform_optical_flow(self.next.image, flow, ff)
+            self.next.image = image_transform_optical_flow(self.next.image, flow, flow_factor)
 
     def advance_hybrid_motion_optical_tween_flow(self, data, indexes, reference_images, last_frame):
         last_i = indexes.tween.i - 1
@@ -73,13 +73,14 @@ class Turbo:
         data.animation_mode.prev_flow = flow
 
     def advance_cadence_flow(self, data, tween_frame):
-        ff = data.args.anim_args.cadence_flow_factor_schedule
+        ff_string = data.args.anim_args.cadence_flow_factor_schedule
+        flow_factor = float(ff_string.split(": ")[1][1:-1])
         i = tween_frame.i()
-        inc = tween_frame.cadence_flow_inc  # FIXME
+        flow = tween_frame.cadence_flow_inc
         if self.is_advance_prev(i):
-            self.prev.image = image_transform_optical_flow(self.prev.image, inc, ff)
+            self.prev.image = image_transform_optical_flow(self.prev.image, flow, flow_factor)
         if self.is_advance_next(i):
-            self.next.image = image_transform_optical_flow(self.next.image, inc, ff)
+            self.next.image = image_transform_optical_flow(self.next.image, flow, flow_factor)
 
     # TODO? move to RenderData
     def advance_ransac_transform(self, data, matrix):

@@ -41,7 +41,7 @@ class RenderInitArgs:
 @dataclass(init=True, frozen=False, repr=False, eq=False)
 class RenderData:
     """The purpose of this class is to group and control all data used in render_animation"""
-    images: Images | None  # TODO rename to reference_images?
+    images: Images | None
     turbo: Turbo | None
     indexes: Indexes | None
     mask: Mask | None
@@ -88,28 +88,30 @@ class RenderData:
         RenderData.maybe_resume_from_timestring(anim_args, root)
         return instance
 
-    def is_3d(self):
+    # The following methods are meant to provide easy and centralized access to the most important
+    # arguments and settings relevant for rendering. All bools use naming with 'is_' or 'has_'.
+    def is_3d(self) -> bool:
         return self.args.anim_args.animation_mode == '3D'
 
-    def is_3d_or_2d(self):
+    def is_3d_or_2d(self) -> bool:
         return self.args.anim_args.animation_mode in ['2D', '3D']
 
-    def has_parseq_keyframe_redistribution(self):
+    def has_parseq_keyframe_redistribution(self) -> bool:
         return self.args.parseq_args.parseq_key_frame_redistribution != "Off"
 
-    def has_optical_flow_cadence(self):
+    def has_optical_flow_cadence(self) -> bool:
         return self.args.anim_args.optical_flow_cadence != 'None'
 
-    def has_optical_flow_redo(self):
+    def has_optical_flow_redo(self) -> bool:
         return self.args.anim_args.optical_flow_redo_generation != 'None'
 
-    def is_3d_or_2d_with_optical_flow(self):
+    def is_3d_or_2d_with_optical_flow(self) -> bool:
         return self.is_3d_or_2d() and self.has_optical_flow_cadence()
 
-    def is_3d_with_med_or_low_vram(self):
+    def is_3d_with_med_or_low_vram(self) -> bool:
         return self.is_3d() and memory_utils.is_low_or_med_vram()
 
-    def has_keyframe_redistribution(self):
+    def has_keyframe_redistribution(self) -> bool:
         return self.args.parseq_args
 
     def width(self) -> int:
@@ -121,7 +123,7 @@ class RenderData:
     def dimensions(self) -> tuple[int, int]:
         return self.width(), self.height()
 
-    # TODO group hybrid stuff elsewhere
+    # hybrid stuff
     def is_hybrid_composite(self) -> bool:
         return self.args.anim_args.hybrid_composite != 'None'
 
@@ -139,8 +141,9 @@ class RenderData:
 
     def is_hybrid_composite_after_generation(self) -> bool:
         return self.args.anim_args.hybrid_composite == 'After Generation'
+    # end hybrid stuff
 
-    def is_initialize_color_match(self, color_match_sample):
+    def is_initialize_color_match(self, color_match_sample) -> bool:
         """Determines whether to initialize color matching based on the given conditions."""
         has_video_input = self.args.anim_args.color_coherence == 'Video Input' and self.is_hybrid_available()
         has_image_color_coherence = self.args.anim_args.color_coherence == 'Image'
@@ -150,16 +153,16 @@ class RenderData:
         has_sample_and_match = has_any_color_sample and has_coherent_non_legacy_color_match
         return has_video_input or has_image_color_coherence or has_sample_and_match
 
-    def has_color_coherence(self):
+    def has_color_coherence(self) -> bool:
         return self.args.anim_args.color_coherence != 'None'
 
-    def has_non_video_or_image_color_coherence(self):
+    def has_non_video_or_image_color_coherence(self) -> bool:
         return self.args.anim_args.color_coherence not in ['Image', 'Video Input']
 
-    def is_resuming_from_timestring(self):
+    def is_resuming_from_timestring(self) -> bool:
         return self.args.anim_args.resume_from_timestring
 
-    def has_video_input(self):
+    def has_video_input(self) -> bool:
         return self.animation_mode.has_video_input
 
     def cadence(self) -> int:
@@ -177,7 +180,7 @@ class RenderData:
     def is_using_init_image_or_box(self) -> bool:
         return self.args.args.use_init and self._has_init_image_or_box()
 
-    def is_not_in_motion_preview_mode(self):
+    def is_not_in_motion_preview_mode(self) -> bool:
         return not self.args.args.motion_preview_mode
 
     def color_coherence_mode(self):
@@ -189,14 +192,14 @@ class RenderData:
     def diffusion_redo_as_int(self):
         return int(self.diffusion_redo())
 
-    def has_positive_diffusion_redo(self):
+    def has_positive_diffusion_redo(self) -> bool:
         return self.diffusion_redo_as_int() > 0
 
     def optical_flow_redo_generation_if_not_in_preview_mode(self):
         is_not_preview = self.is_not_in_motion_preview_mode()
         return self.args.anim_args.optical_flow_redo_generation if is_not_preview else 'None'
 
-    def is_do_color_match_conversion(self, step):
+    def is_do_color_match_conversion(self, step) -> bool:
         is_legacy_cm = self.args.anim_args.legacy_colormatch
         is_use_init = self.args.args.use_init
         is_not_legacy_with_use_init = not is_legacy_cm and not is_use_init
@@ -290,15 +293,6 @@ class RenderData:
         self.prompt_for_current_step(i)
         self.update_video_data_for_current_frame(i, step)
         self.update_mask_image(step, data.mask)
-
-        if len(step.tweens) > 0:
-            # FIXME it's not yet working as it is supposed to
-            # data.args.anim_args.cadence_flow_factor_schedule = f"0: ({len(step.tweens) + 1})"
-            data.args.anim_args.cadence_flow_factor_schedule = f"0: (1)"
-            # print(f"cadence_flow_factor_schedule: {data.args.anim_args.cadence_flow_factor_schedule}")
-            # step.step_data.cadence_flow_factor = 1.0 / len(step.tweens)
-            # print(f"cadence_flow_factor: {step.step_data.cadence_flow_factor}")
-
         self.animation_keys = AnimationKeys.from_args(self.args, self.parseq_adapter, self.seed)
         opt_utils.setup(step.schedule)
         memory_utils.handle_vram_if_depth_is_predicted(data)

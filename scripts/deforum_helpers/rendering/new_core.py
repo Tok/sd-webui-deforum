@@ -87,7 +87,7 @@ def _update_pseudo_cadence(data, value):
     data.parseq_adapter.cadence = value
     data.parseq_adapter.a1111_cadence = value
     data.args.anim_args.diffusion_cadence = value
-    data.args.anim_args.cadence_flow_factor_schedule = value
+    data.args.anim_args.cadence_flow_factor_schedule = f"0: ({value})"
 
 
 def _tweens_with_progress(key_step):
