@@ -24,6 +24,10 @@ def is_verbose():
     return opts.data.get("deforum_debug_mode_enabled", False)
 
 
+def clear_previous_line():
+    print("\033[F\033[K", end="")  # "\033[" is the ANSI escape sequence, "F" is cursor up, "K" is clear line.
+
+
 def print_tween_frame_from_to_info(key_step, is_disabled=True):
     if not is_disabled:  # replaced with prog bar, but value info print may be useful
         tween_values = key_step.tween_values
@@ -36,6 +40,7 @@ def print_tween_frame_from_to_info(key_step, is_disabled=True):
 
 
 def print_animation_frame_info(i, max_frames):
+    print("")
     print(f"{CYAN}Animation frame: {RESET}{i}/{max_frames}")
 
 

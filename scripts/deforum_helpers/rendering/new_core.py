@@ -92,7 +92,9 @@ def _update_pseudo_cadence(data, value):
 
 def _tweens_with_progress(key_step):
     # only use tween progress bar when extra console output (aka "dev mode") is disabled.
-    return (tqdm(key_step.tweens, position=1, desc="Tweens progress", file=progress_print_out,
-                 disable=cmd_opts.disable_console_progressbars, leave=False, colour='#FFA468')
-            if not log_utils.is_verbose()
-            else key_step.tweens)
+    if not log_utils.is_verbose():
+        log_utils.clear_previous_line()
+        return tqdm(key_step.tweens, desc="Tweens progress", file=progress_print_out,
+                    disable=cmd_opts.disable_console_progressbars, colour='#FFA468')
+    else:
+        return key_step.tweens
