@@ -22,7 +22,6 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
     data.animation_mode.unload_raft_and_depth_model()
 
 
-# @log_utils.with_suppressed_table_printing
 def run_render_animation(data: RenderData, key_frames: List[KeyFrame]):
     for key_frame in key_frames:
         if is_resume(data, key_frame):
@@ -76,10 +75,11 @@ def emit_tweens(data, key_step):
 
 def _check_experimental_render_conditions(data):
     if data.has_parseq_keyframe_redistribution():
+        msg = "Using Parseq keyframe redistribution with {method}. Results may be unexpected."
         if data.has_optical_flow_cadence():
-            log_utils.warn("Using Parseq keyframe redistribution with optical flow cadence. Results may be unexpected.")
+            log_utils.warn(msg.format(method="optical flow cadence"))
         if data.has_optical_flow_redo():
-            log_utils.warn("Using Parseq keyframe redistribution with optical flow redo. Results may be unexpected.")
+            log_utils.warn(msg.format(method="optical flow generation"))
 
 
 def _update_pseudo_cadence(data, value):

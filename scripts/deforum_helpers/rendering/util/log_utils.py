@@ -1,8 +1,6 @@
 # noinspection PyUnresolvedReferences
 from modules.shared import opts
 
-from ... import generate
-
 COLOUR_RGB = '\x1b[38;2;%d;%d;%dm'
 RED = "\033[31m"
 ORANGE = "\033[38;5;208m"
@@ -97,28 +95,3 @@ def debug(s: str):
     if is_verbose():
         eye_catcher = "###"
         print(f"{YELLOW}{BOLD}{eye_catcher} Debug: {RESET}{s}")
-
-
-# noqa
-def with_suppressed_table_printing(func):
-    def _suppress_table_printing():
-        # The combined table that is normally printed to the command line is suppressed,
-        # because it's not compatible with variable keyframe cadence.
-        def do_nothing(*args):
-            pass
-
-        original_print_combined_table = generate.print_combined_table
-        generate.print_combined_table = do_nothing  # Monkey patch with do_nothing
-        return original_print_combined_table
-
-    def _reactivate_table_printing(original_print_combined_table):
-        generate.print_combined_table = original_print_combined_table
-
-    def wrapper(*args, **kwargs):
-        original = _suppress_table_printing()
-        try:
-            return func(*args, **kwargs)
-        finally:
-            _reactivate_table_printing(original)
-
-    return wrapper
