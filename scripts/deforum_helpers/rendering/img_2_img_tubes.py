@@ -73,7 +73,6 @@ def conditional_extra_color_match_tube(data: RenderData) -> PilImageTube:
     # color matching on first frame is after generation, color match was collected earlier,
     # so we do an extra generation to avoid the corruption introduced by the color match of first output
     return tube(lambda img: maintain_colors(img, data.images.color_match, data.args.anim_args.color_coherence),
-                lambda img: image_utils.numpy_to_pil(image_utils.pil_to_numpy(img)),  # TODO? remove
                 lambda img: maintain_colors(img, data.images.color_match, data.args.anim_args.color_coherence),
                 lambda img: image_utils.numpy_to_pil(img),
                 is_do_process=lambda: data.indexes.is_first_frame() and data.is_initialize_color_match(

@@ -22,6 +22,7 @@ from ...util.call.images import call_add_noise
 from ...util.call.mask import call_compose_mask_with_check, call_unsharp_mask
 from ...util.call.subtitle import call_format_animation_params, call_write_frame_subtitle
 from ...util.call.video_and_audio import call_render_preview
+from ....animation_key_frames import DeformAnimKeys
 from ....colors import maintain_colors
 from ....hybrid_video import image_transform_ransac, image_transform_optical_flow
 from ....save_images import save_image
@@ -52,8 +53,9 @@ class KeyFrameData:
         return self.strength > 0
 
     @staticmethod
-    def create(deform_keys, i):
-        keys = deform_keys
+    def create(data: RenderData):
+        i = data.indexes.frame.i
+        keys: DeformAnimKeys = data.animation_keys.deform_keys
         return KeyFrameData(
             keys.noise_schedule_series[i],
             keys.strength_schedule_series[i],
@@ -284,8 +286,8 @@ class KeyFrame:
 
     @staticmethod
     def create(data: RenderData):
-        step_data = KeyFrameData.create(data.animation_keys.deform_keys, data.indexes.frame.i)
-        schedule = Schedule.create(data, data.indexes.frame.i, data.args.anim_args, data.args.args)
+        step_data = KeyFrameData.create(data)
+        schedule = Schedule.create(data)
         return KeyFrame(0, step_data, data, schedule, None, None, "", 0, list(), list())
 
     @staticmethod

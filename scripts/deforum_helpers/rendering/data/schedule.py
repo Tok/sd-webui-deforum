@@ -1,6 +1,10 @@
 from dataclasses import dataclass
 from typing import Optional, Any
 
+from .render_data import RenderData
+from ...animation_key_frames import DeformAnimKeys
+from ...args import DeforumAnimArgs, DeforumArgs
+
 
 @dataclass(init=True, frozen=True, repr=False, eq=False)
 class Schedule:
@@ -9,16 +13,17 @@ class Schedule:
     clipskip: int
     noise_multiplier: float
     eta_ddim: float
-    eta_ancestral: float  # TODO unify ddim- and a-eta to use one or the other, depending on sampler
+    eta_ancestral: float
     mask: Optional[Any]
     noise_mask: Optional[Any]
 
     @staticmethod
-    def create(init, i, anim_args, args):
-        # TODO typecheck keys as DeformAnimKeys or provide key collection or something
+    def create(data: RenderData):
         """Create a new Schedule instance based on the provided parameters."""
-        is_use_mask_without_noise = init.is_use_mask and not init.args.anim_args.use_noise_mask
-        keys = init.animation_keys.deform_keys
+        i = data.indexes.frame.i
+        args: DeforumArgs = data.args.args
+        anim_args: DeforumAnimArgs = data.args.anim_args
+        keys: DeformAnimKeys = data.animation_keys.deform_keys
         steps = Schedule.schedule_steps(keys, i, anim_args)
         sampler_name = Schedule.schedule_sampler(keys, i, anim_args)
         clipskip = Schedule.schedule_clipskip(keys, i, anim_args)
@@ -26,6 +31,7 @@ class Schedule:
         eta_ddim = Schedule.schedule_ddim_eta(keys, i, anim_args)
         eta_ancestral = Schedule.schedule_ancestral_eta(keys, i, anim_args)
         mask = Schedule.schedule_mask(keys, i, args)
+        is_use_mask_without_noise = data.is_use_mask and not data.args.anim_args.use_noise_mask
         noise_mask = mask if is_use_mask_without_noise else Schedule.schedule_noise_mask(keys, i, anim_args)
         return Schedule(steps, sampler_name, clipskip, noise_multiplier, eta_ddim, eta_ancestral, mask, noise_mask)
 
