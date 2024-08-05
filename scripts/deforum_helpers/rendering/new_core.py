@@ -96,5 +96,4 @@ def _tweens_with_progress(key_step):
         log_utils.clear_previous_line()
         return tqdm(key_step.tweens, desc="Tweens progress", file=progress_print_out,
                     disable=cmd_opts.disable_console_progressbars, colour='#FFA468')
-    else:
-        return key_step.tweens
+    return key_step.tweens

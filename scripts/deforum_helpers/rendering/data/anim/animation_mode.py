@@ -84,7 +84,7 @@ class AnimationMode:
         sa = step_args  # RenderInitArgs
         # path required by hybrid functions, even if hybrid_comp_save_extra_frames is False
         hybrid_input_files: Any = os.path.join(sa.args.outdir, 'hybridframes')
-        previous_flow = None  # FIXME?
+        previous_flow = None
         return AnimationMode(
             AnimationMode._has_video_input(sa.anim_args),
             AnimationMode.initial_hybrid_files(sa),

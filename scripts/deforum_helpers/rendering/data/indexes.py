@@ -19,7 +19,7 @@ class Indexes:
     def create(init, turbo):
         frame_start = turbo.find_start(init)
         tween_start = 0
-        return Indexes(IndexWithStart(frame_start, 0), IndexWithStart(tween_start, 0))
+        return Indexes(IndexWithStart(frame_start), IndexWithStart(tween_start))
 
     @staticmethod
     def create_from_last(last_indexes, i: int):

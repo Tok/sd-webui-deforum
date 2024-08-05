@@ -39,7 +39,7 @@ class KeyFrameData:
     sigma: Any = None
     amount: Any = None
     threshold: Any = None
-    cadence_flow_factor: Any = None  # FIXME re-assignable
+    cadence_flow_factor: Any = None
     redo_flow_factor: Any = None
     hybrid_comp_schedules: Any = None
 
@@ -87,7 +87,7 @@ class KeyFrame:
     step_data: KeyFrameData
     render_data: RenderData
     schedule: Schedule
-    depth: Any  # TODO try to init early, then freeze class
+    depth: Any  # assigned during generation
     subtitle_params_to_print: Any
     subtitle_params_string: str
     last_preview_frame: int
@@ -104,14 +104,14 @@ class KeyFrame:
     def maybe_write_frame_subtitle(self):
         data = self.render_data
         if data.turbo.is_first_step_with_subtitles():
-            params_string = opt_utils.generation_info_for_subtitles(data)
+            params_string = opt_utils.generation_info_for_subtitles()
             self.subtitle_params_to_print = params_string
             self.subtitle_params_string = call_format_animation_params(data, data.indexes.frame.i, params_string)
             call_write_frame_subtitle(data, data.indexes.frame.i, params_string)
 
     def apply_frame_warp_transform(self, data: RenderData, image):
         is_not_last_frame = self.i < data.args.anim_args.max_frames
-        if is_not_last_frame:  # TODO? why not
+        if is_not_last_frame:
             previous, self.depth = call_anim_frame_warp(data, self.i, image, None)
             return previous
 
@@ -158,20 +158,19 @@ class KeyFrame:
                 return cv2.cvtColor(data.images.color_match, cv2.COLOR_RGB2BGR)
         return None
 
+    def _generate_and_update_noise(self, data, image, contrasted_noise_tube):
+        noised_image = contrasted_noise_tube(data, self)(image)
+        data.update_sample_and_args_for_current_progression_step(self, noised_image)
+        return image  # return original as passed.
+
     def transform_and_update_noised_sample(self, frame_tube, contrasted_noise_tube):
         data = self.render_data
         if data.images.has_previous():  # skipping 1st iteration
             transformed_image = frame_tube(data, self)(data.images.previous)
-            # TODO separate
-            if transformed_image is None:  # FIXME? shouldn't really happen
-                log_utils.debug(f"transformed_image {transformed_image}")
-                noised_image = contrasted_noise_tube(data, self)(data.images.previous)
-                data.update_sample_and_args_for_current_progression_step(self, noised_image)
-                return data.images.previous
-            else:
-                noised_image = contrasted_noise_tube(data, self)(transformed_image)
-                data.update_sample_and_args_for_current_progression_step(self, noised_image)
-                return transformed_image
+            if transformed_image is None:
+                log_utils.warn("Image transformation failed, using fallback.")
+                transformed_image = data.images.previous
+            return self._generate_and_update_noise(data, transformed_image, contrasted_noise_tube)
         return None
 
     def prepare_generation(self, frame_tube, contrasted_noise_tube):
@@ -334,7 +333,7 @@ class KeyFrame:
                 else call_get_flow_for_hybrid_motion(data, last_i)
             transformed = image_transform_optical_flow(
                 reference_images.previous, flow, key_frame.step_data.flow_factor())
-            data.animation_mode.prev_flow = flow  # side effect
+            data.animation_mode.prev_flow = flow
             return transformed
         return image
 

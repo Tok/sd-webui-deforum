@@ -40,11 +40,10 @@ class Tween:
         self.process(last_frame, data)
 
         new_image = self.generate_tween_image(data, grayscale_tube, overlay_mask_tube)
-        # TODO pass step and depth instead of data and tween_step.indexes
         new_image = image_utils.save_and_return_frame(data, self, self.i(), new_image)
 
         # updating reference images to calculate hybrid motions in next iteration
-        data.images.previous = new_image  # FIXME
+        data.images.previous = new_image
 
     def generate_tween_image(self, data, grayscale_tube, overlay_mask_tube):
         warped = data.turbo.do_optical_flow_cadence_after_animation_warping(data, self.indexes, self)
@@ -65,8 +64,8 @@ class Tween:
         web_ui_utils.update_progress_during_cadence(data, self.indexes)
 
     def write_tween_frame_subtitle_if_active(self, data: RenderData):
-        if opt_utils.is_generate_subtitles(data):
-            params_to_print = opt_utils.generation_info_for_subtitles(data)
+        if opt_utils.is_generate_subtitles():
+            params_to_print = opt_utils.generation_info_for_subtitles()
             params_string = call_format_animation_params(data, self.indexes.tween.i, params_to_print)
             is_cadence = self.value < 1.0
             call_write_frame_subtitle(data, self.indexes.tween.i, params_string, is_cadence)
