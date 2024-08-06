@@ -35,7 +35,7 @@ class Mask:
             init.args.root.noise_mask = mask
             put_all(dicts, key, mask)
         elif is_mask_image is None and init.is_use_mask:
-            put_all(dicts, key, get_mask(init.args.args))  # TODO?: add a different default noise mask
+            put_all(dicts, key, get_mask(init.args.args))
 
     @staticmethod
     def _load_mask(init, args):

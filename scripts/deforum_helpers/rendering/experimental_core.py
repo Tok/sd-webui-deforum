@@ -13,7 +13,7 @@ from .util import filename_utils, image_utils, log_utils, opt_utils, memory_util
 
 
 def render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root):
-    log_utils.debug("Using new render core.")
+    log_utils.info("Using experimental render core.")
     data = RenderData.create(args, parseq_args, anim_args, video_args, controlnet_args, loop_args, root)
     _check_experimental_render_conditions(data)
     web_ui_utils.init_job(data)

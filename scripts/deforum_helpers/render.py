@@ -48,7 +48,7 @@ from .masks import do_overlay_mask
 from .prompt import prepare_prompt
 from modules.shared import opts, cmd_opts, state, sd_model
 from modules import lowvram, devices, sd_hijack
-from .rendering import new_core
+from .rendering import experimental_core
 from .RAFT import RAFT
 
 from deforum_api import JobStatusTracker
@@ -58,7 +58,7 @@ def render_animation(args, anim_args, video_args, parseq_args, loop_args, contro
     is_use_key_frame_redistribution = parseq_args.parseq_key_frame_redistribution != "Off"
     is_use_new_render_core = is_use_parseq and is_use_key_frame_redistribution
     if is_use_new_render_core:
-        new_core.render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root)
+        experimental_core.render_animation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, root)
         return
 
     # initialise Parseq adapter

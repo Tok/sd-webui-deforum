@@ -14,13 +14,12 @@ from .indexes import Indexes
 from .mask import Mask
 from .subtitle import Srt
 from .turbo import Turbo
-from ..util import log_utils, memory_utils, opt_utils
+from ..util import depth_utils, log_utils, memory_utils, opt_utils
 from ..util.call.images import call_get_mask_from_file_with_frame
 from ..util.call.mask import call_compose_mask_with_check
 from ..util.call.video_and_audio import call_get_next_frame
 from ...args import DeforumArgs, DeforumAnimArgs, LoopArgs, ParseqArgs, RootArgs
 from ...deforum_controlnet import unpack_controlnet_vids, is_controlnet_enabled
-from ...depth import DepthModel
 from ...generate import (isJson)
 from ...parseq_adapter import ParseqAdapter
 from ...prompt import prepare_prompt
@@ -67,7 +66,7 @@ class RenderData:
         animation_keys = AnimationKeys.from_args(ri_args, parseq_adapter, args.seed)
         animation_mode = AnimationMode.from_args(ri_args)
         prompt_series = RenderData.select_prompts(parseq_adapter, anim_args, animation_keys, root)
-        depth_model = RenderData.create_depth_model_and_enable_depth_map_saving_if_active(
+        depth_model = depth_utils.create_depth_model_and_enable_depth_map_saving_if_active(
             animation_mode, root, anim_args, args)
 
         # Temporary instance only exists for using it to easily create other objects required by the actual instance.
@@ -147,9 +146,9 @@ class RenderData:
         """Determines whether to initialize color matching based on the given conditions."""
         has_video_input = self.args.anim_args.color_coherence == 'Video Input' and self.is_hybrid_available()
         has_image_color_coherence = self.args.anim_args.color_coherence == 'Image'
-        has_any_color_sample = color_match_sample is not None  # TODO extract to own method?
         has_coherent_non_legacy_color_match = (self.args.anim_args.color_coherence != 'None'
                                                and not self.args.anim_args.legacy_colormatch)
+        has_any_color_sample = color_match_sample is not None
         has_sample_and_match = has_any_color_sample and has_coherent_non_legacy_color_match
         return has_video_input or has_image_color_coherence or has_sample_and_match
 
@@ -284,7 +283,6 @@ class RenderData:
                 self.args.args.mask_image = None  # we need it only after the first frame anyway
 
     def prepare_generation(self, data, step, i):
-        # TODO move all of this to Step?
         if i > self.args.anim_args.max_frames - 1:
             return
         self.update_some_args_for_current_step(step, i)
@@ -326,25 +324,6 @@ class RenderData:
     def select_prompts(parseq_adapter, anim_args, animation_keys, root):
         return animation_keys.deform_keys.prompts if parseq_adapter.manages_prompts() \
             else RenderData.expand_prompts_out_to_per_frame(anim_args, root)
-
-    @staticmethod
-    def is_composite_with_depth_mask(anim_args):
-        return anim_args.hybrid_composite != 'None' and anim_args.hybrid_comp_mask_type == 'Depth'
-
-    @staticmethod
-    def create_depth_model_and_enable_depth_map_saving_if_active(anim_mode, root, anim_args, args):
-        # depth-based hybrid composite mask requires saved depth maps
-        # TODO avoid or isolate side effect:
-        anim_args.save_depth_maps = (anim_mode.is_predicting_depths
-                                     and RenderData.is_composite_with_depth_mask(anim_args))
-        return DepthModel(root.models_path,
-                          memory_utils.select_depth_device(root),
-                          root.half_precision,
-                          keep_in_vram=anim_mode.is_keep_in_vram,
-                          depth_algorithm=anim_args.depth_algorithm,
-                          Width=args.W, Height=args.H,
-                          midas_weight=anim_args.midas_weight) \
-            if anim_mode.is_predicting_depths else None
 
     @staticmethod
     def expand_prompts_out_to_per_frame(anim_args, root):
