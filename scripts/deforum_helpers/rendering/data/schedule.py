@@ -83,12 +83,10 @@ class Schedule:
 
     @staticmethod
     def schedule_mask(keys, i, args):
-        # TODO can we have a mask schedule without a normal schedule? if so check and optimize
         return keys.mask_schedule_series[i] \
             if args.use_mask and Schedule._has_mask_schedule(keys, i) else None
 
     @staticmethod
     def schedule_noise_mask(keys, i, anim_args):
-        # TODO can we have a noise mask schedule without a mask- and normal schedule? if so check and optimize
         return keys.noise_mask_schedule_series[i] \
             if anim_args.use_noise_mask and Schedule._has_noise_mask_schedule(keys, i) else None

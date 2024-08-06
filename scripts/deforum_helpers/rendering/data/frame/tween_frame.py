@@ -59,7 +59,7 @@ class Tween:
         data.turbo.do_hybrid_video_motion(data, last_frame, self.indexes, data.images)
 
     def handle_synchronous_status_concerns(self, data):
-        self.write_tween_frame_subtitle_if_active(data)  # TODO decouple from execution and calc all in advance?
+        self.write_tween_frame_subtitle_if_active(data)  # TODO? decouple from execution and calc all in advance.
         log_utils.print_tween_frame_info(data, self.indexes, self.cadence_flow, self.value)
         web_ui_utils.update_progress_during_cadence(data, self.indexes)
 

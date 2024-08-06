@@ -30,7 +30,7 @@ class Indexes:
         return Indexes(self.frame, IndexWithStart(self.tween.start, self.tween.i + 1))
 
     def update_tween_start(self, turbo):
-        tween_start = max(self.frame.start, self.frame.i - turbo.steps)
+        tween_start = max(self.frame.start, self.frame.i - turbo.cadence)
         self.tween = IndexWithStart(tween_start, self.tween.i)
 
     def update_tween_index(self, i):

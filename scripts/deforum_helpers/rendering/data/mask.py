@@ -9,8 +9,7 @@ from ...load_images import get_mask, load_img
 from ...rendering.util.call.images import call_get_mask_from_file
 
 
-# TODO freeze?
-@dataclass(init=True, frozen=False, repr=False, eq=False)
+@dataclass(init=True, frozen=True, repr=False, eq=False)
 class Mask:
     image: Image
     vals: Any

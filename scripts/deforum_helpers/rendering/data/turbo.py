@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from cv2.typing import MatLike
 
-from ..util import opt_utils, log_utils
+from ..util import opt_utils
 from ..util.call.anim import call_anim_frame_warp
 from ..util.call.hybrid import (call_get_flow_for_hybrid_motion_prev, call_get_flow_for_hybrid_motion,
                                 call_get_matrix_for_hybrid_motion, call_get_matrix_for_hybrid_motion_prev)
@@ -17,10 +17,9 @@ class ImageFrame:
     index: int
 
 
-# TODO freeze..
 @dataclass(frozen=False)
 class Turbo:
-    steps: int  # cadence
+    cadence: int
     prev: ImageFrame
     next: ImageFrame
 
@@ -122,12 +121,12 @@ class Turbo:
     def progress_step(self, indexes, opencv_image):
         self.prev.image, self.prev.index = self.next.image, self.next.index
         self.next.image, self.next.index = opencv_image, indexes.frame.i
-        return self.steps
+        return self.cadence
 
     def _set_up_step_vars(self, data):
         # determine last frame and frame to start on
         prev_frame, next_frame, prev_img, next_img = call_get_resume_vars(data, self)
-        if self.steps > 1:
+        if self.cadence > 1:
             self.prev.image, self.prev.index = prev_img, prev_frame if prev_frame >= 0 else 0
             self.next.image, self.next.index = next_img, next_frame if next_frame >= 0 else 0
 
@@ -141,16 +140,16 @@ class Turbo:
         return 0
 
     def has_steps(self):
-        return self.steps > 1
+        return self.cadence > 1
 
     def is_advance_next(self, i: int) -> bool:
         return i > self.next.index
 
     def is_first_step(self) -> bool:
-        return self.steps == 1
+        return self.cadence == 1
 
     def is_first_step_with_subtitles(self) -> bool:
         return self.is_first_step() and opt_utils.is_subtitle_generation_active()
 
     def is_emit_in_between_frames(self) -> bool:
-        return self.steps > 1
+        return self.cadence > 1

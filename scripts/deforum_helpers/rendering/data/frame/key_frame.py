@@ -144,10 +144,6 @@ class KeyFrame:
             self.do_diffusion_redo()
 
     def generate(self):
-        max_frames = self.render_data.args.anim_args.max_frames
-        if self.render_data.indexes.frame.i >= max_frames:
-            # TODO? prevents an error elsewhere when generating last frame, but `indexes`..
-            self.render_data.indexes.update_frame(max_frames - 1)
         return call_generate(self.render_data, self)
 
     def after_diffusion(self, image):
