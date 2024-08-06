@@ -17,6 +17,12 @@ class ImageFrame:
     index: int
 
 
+# Disabling transformations of previous frames may not be suited for all scenarios,
+# but depending on setup can speed up generations significantly and without changing
+# the visual output in a noticeable way. Leaving it off should be fine for current use cases.
+IS_TRANSFORM_PREV = False  # TODO? benchmark and visually compare results. make configurable from UI?
+
+
 @dataclass(frozen=False)
 class Turbo:
     cadence: int
@@ -29,7 +35,9 @@ class Turbo:
         return Turbo(steps, ImageFrame(None, 0), ImageFrame(None, 0))
 
     def advance(self, data, i: int, depth):
-        if self.next.image is not None:
+        if self._has_prev_image() and IS_TRANSFORM_PREV:
+            self.prev.image, _ = call_anim_frame_warp(data, i, self.prev.image, depth)
+        if self._has_next_image():
             self.next.image, _ = call_anim_frame_warp(data, i, self.next.image, depth)
 
     def do_hybrid_video_motion(self, data, last_frame, indexes, reference_images):
@@ -51,6 +59,8 @@ class Turbo:
     def advance_optical_tween_flow(self, indexes, last_frame, flow):
         flow_factor = last_frame.step_data.flow_factor()
         i = indexes.tween.i
+        if self.is_advance_prev(i):
+            self.prev.image = image_transform_optical_flow(self.prev.image, flow, flow_factor)
         if self.is_advance_next(i):
             self.next.image = image_transform_optical_flow(self.next.image, flow, flow_factor)
 
@@ -67,12 +77,16 @@ class Turbo:
         flow_factor = float(ff_string.split(": ")[1][1:-1])
         i = tween_frame.i()
         flow = tween_frame.cadence_flow_inc
+        if self.is_advance_prev(i):
+            self.prev.image = image_transform_optical_flow(self.prev.image, flow, flow_factor)
         if self.is_advance_next(i):
             self.next.image = image_transform_optical_flow(self.next.image, flow, flow_factor)
 
     def advance_ransac_transform(self, data, matrix):
         i = data.indexes.tween.i
         motion = data.args.anim_args.hybrid_motion
+        if self.is_advance_prev(i):
+            self.prev.image = image_transform_ransac(self.prev.image, matrix, motion)
         if self.is_advance_next(i):
             self.next.image = image_transform_ransac(self.next.image, matrix, motion)
 
@@ -141,6 +155,15 @@ class Turbo:
 
     def has_steps(self):
         return self.cadence > 1
+
+    def _has_prev_image(self):
+        return self.prev.image is not None
+
+    def is_advance_prev(self, i: int) -> bool:
+        return IS_TRANSFORM_PREV and self._has_prev_image() and i > self.prev.index
+
+    def _has_next_image(self):
+        return self.next.image is not None
 
     def is_advance_next(self, i: int) -> bool:
         return i > self.next.index
