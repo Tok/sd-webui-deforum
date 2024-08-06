@@ -7,12 +7,11 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from . import KeyFrameDistribution
+from . import KeyFrameData, KeyFrameDistribution
 from .tween_frame import Tween
-from ..render_data import RenderData
-from ..schedule import Schedule
+from .. import RenderData, Schedule
 from ... import img_2_img_tubes
-from ...util import filename_utils, log_utils, memory_utils, opt_utils, utils
+from ...util import depth_utils, filename_utils, log_utils, opt_utils, utils
 from ...util.call.anim import call_anim_frame_warp
 from ...util.call.gen import call_generate
 from ...util.call.hybrid import (
@@ -22,62 +21,10 @@ from ...util.call.images import call_add_noise
 from ...util.call.mask import call_compose_mask_with_check, call_unsharp_mask
 from ...util.call.subtitle import call_format_animation_params, call_write_frame_subtitle
 from ...util.call.video_and_audio import call_render_preview
-from ....animation_key_frames import DeformAnimKeys
 from ....colors import maintain_colors
 from ....hybrid_video import image_transform_ransac, image_transform_optical_flow
 from ....save_images import save_image
 from ....seed import next_seed
-
-
-@dataclass(init=True, frozen=True, repr=False, eq=False)
-class KeyFrameData:
-    noise: Any = None
-    strength: Any = None
-    scale: Any = None
-    contrast: Any = None
-    kernel: int = 0
-    sigma: Any = None
-    amount: Any = None
-    threshold: Any = None
-    cadence_flow_factor: Any = None
-    redo_flow_factor: Any = None
-    hybrid_comp_schedules: Any = None
-
-    def kernel_size(self) -> tuple[int, int]:
-        return self.kernel, self.kernel
-
-    def flow_factor(self):
-        return self.hybrid_comp_schedules['flow_factor']
-
-    def has_strength(self):
-        return self.strength > 0
-
-    @staticmethod
-    def create(data: RenderData):
-        i = data.indexes.frame.i
-        keys: DeformAnimKeys = data.animation_keys.deform_keys
-        return KeyFrameData(
-            keys.noise_schedule_series[i],
-            keys.strength_schedule_series[i],
-            keys.cfg_scale_schedule_series[i],
-            keys.contrast_schedule_series[i],
-            int(keys.kernel_schedule_series[i]),
-            keys.sigma_schedule_series[i],
-            keys.amount_schedule_series[i],
-            keys.threshold_schedule_series[i],
-            keys.cadence_flow_factor_schedule_series[i],
-            keys.redo_flow_factor_schedule_series[i],
-            KeyFrameData._hybrid_comp_args(keys, i))
-
-    @staticmethod
-    def _hybrid_comp_args(keys, i):
-        return {
-            "alpha": keys.hybrid_comp_alpha_schedule_series[i],
-            "mask_blend_alpha": keys.hybrid_comp_mask_blend_alpha_schedule_series[i],
-            "mask_contrast": keys.hybrid_comp_mask_contrast_schedule_series[i],
-            "mask_auto_contrast_cutoff_low": int(keys.hybrid_comp_mask_auto_contrast_cutoff_low_schedule_series[i]),
-            "mask_auto_contrast_cutoff_high": int(keys.hybrid_comp_mask_auto_contrast_cutoff_high_schedule_series[i]),
-            "flow_factor": keys.hybrid_flow_factor_schedule_series[i]}
 
 
 @dataclass(init=True, frozen=False, repr=False, eq=False)
@@ -226,10 +173,10 @@ class KeyFrame:
             # In many cases, the original images may look more detailed or 'better' than the processed ones,
             # but we only save the frames that were processed tough the flows to keep the output consistent.
             # However, it may be preferable to use them for the 1st and for the last frame, or as thumbnails.
-            # TODO perhaps save original frames in a different sub dir?
+            # TODO? add option to save original frames in a different sub dir.
             save_image(image, 'PIL', filename, data.args.args, data.args.video_args, data.args.root)
 
-        self.depth = self.generate_and_save_depth_map_if_active(opencv_image)
+        self.depth = depth_utils.generate_and_save_depth_map_if_active(data, opencv_image)
         if data.turbo.has_steps():
             return data.indexes.frame.i + data.turbo.progress_step(data.indexes, opencv_image)
         return data.indexes.frame.i + 1  # normal (i.e. 'non-turbo') step always increments by 1.
@@ -240,24 +187,12 @@ class KeyFrame:
     def update_render_preview(self):
         self.last_preview_frame = call_render_preview(self.render_data, self.last_preview_frame)
 
-    def generate_and_save_depth_map_if_active(self, opencv_image):
-        data = self.render_data
-        # TODO move all depth related stuff to new class.
-        if data.args.anim_args.save_depth_maps:
-            memory_utils.handle_vram_before_depth_map_generation(data)
-            depth = data.depth_model.predict(opencv_image, data.args.anim_args.midas_weight,
-                                             data.args.root.half_precision)
-            depth_filename = filename_utils.depth_frame(data, data.indexes)
-            data.depth_model.save(os.path.join(data.output_directory, depth_filename), depth)
-            memory_utils.handle_vram_after_depth_map_generation(data)
-            return depth
-
     def do_optical_flow_redo_before_generation(self):
         data = self.render_data
         redo = data.args.anim_args.optical_flow_redo_generation
         stored_seed = data.args.args.seed  # keep original to reset it after executing the optical flow
-        data.args.args.seed = utils.generate_random_seed()  # set a new random seed
-        log_utils.print_optical_flow_info(data, redo)  # TODO output temp seed?
+        data.args.args.seed = utils.generate_random_seed()  # create and set a new random seed
+        log_utils.print_optical_flow_info(data, redo)
 
         sample_image = call_generate(data, self)
         optical_tube = img_2_img_tubes.optical_flow_redo_tube(data, self, redo)
