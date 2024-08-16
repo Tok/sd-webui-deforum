@@ -993,11 +993,11 @@ def ParseqArgs():
             "info": "Recommended. If you uncheck this, the FPS, max_frames and cadence in the Parseq doc are ignored, and the values in the A1111 UI are used instead."
         },
         "parseq_key_frame_redistribution": {
-            "label": "Parseq key frame redistribution mode.",
+            "label": "Parseq key frame redistribution.",
             "type": "dropdown",
             "choices": get_parseq_keyframe_redistributions_list().values(),
             "value": "None",
-            "info": "Gain Parseq precision at the cost of cadence regularity."
+            "info": "Gain Parseq precision at the cost of cadence regularity. Allows for fast generations at high cadence."
         },
     }
 

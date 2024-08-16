@@ -75,11 +75,15 @@ def emit_tweens(data, key_step):
 
 def _check_experimental_render_conditions(data):
     if data.has_parseq_keyframe_redistribution():
-        msg = "Using Parseq keyframe redistribution with {method}. Results may be unexpected."
+        msg = "Experimental conditions: Using 'Parseq keyframe redistribution' together with '{method}'. {results}. \
+               In case of problems, consider deactivating either one."
+        dark_or_dist = "Resulting images may quickly end up looking dark or distorted."
         if data.has_optical_flow_cadence():
-            log_utils.warn(msg.format(method="optical flow cadence"))
+            log_utils.warn(msg.format(method="optical flow cadence", results=dark_or_dist))
         if data.has_optical_flow_redo():
-            log_utils.warn(msg.format(method="optical flow generation"))
+            log_utils.warn(msg.format(method="optical flow generation", results=dark_or_dist))
+        if data.is_hybrid_available():
+            log_utils.warn(msg.format(method="hybrid video", results="Render process may not run stable."))
 
 
 def _update_pseudo_cadence(data, value):

@@ -588,6 +588,7 @@ def get_tab_output(da, dv):
 
 def create_keyframe_redistribution_info():
     bars_mark = "&#x1F4CA;"
+    warn_mark = "&#x26A0;&#xFE0F;"
     gr.HTML(value=f"""<p>
         <span>Parseq keyframe redistribution ensures that every frame in the Parseq table is diffused.</span>
         <span>It may easily be used at high FPS with just a fixed value for 'strength' in Parseq \
@@ -608,4 +609,6 @@ def create_keyframe_redistribution_info():
             Cadence may be understood as 'pseudo cadence'. \
             A cadence value of '30' may more correctly be understood as 'about 30' in this mode.</li>
         </ol>
+        <span>{warn_mark} It's currently not recommended to use keyframe redistribution together with optical flow \
+            or with hybrid video.</span>
     </p>""")
