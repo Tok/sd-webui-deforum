@@ -38,7 +38,7 @@ Or launch A1111, navigate to the Extensions tab, choose Available, find deforum 
 7. After the generation process is completed, click the button with the self-describing name to show the video or gif result right in the GUI!
 
 8. Join our Discord where you can post generated stuff, ask questions and more: https://discord.gg/deforum. <br>
-* There's also the 'Issues' tab in the repo, for well... reporting issues ;)
+* There's also the 'Issues' tab in the repo, for well... reporting issues ;) 
 
 9. Profit!
 

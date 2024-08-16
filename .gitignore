@@ -32,6 +32,3 @@ htmlcov
 tests/results.xml
 .coverage*
 serverlog.txt
-
-# PyCharm config
-.idea
