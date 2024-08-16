@@ -20,7 +20,7 @@ class ImageFrame:
 # Disabling transformations of previous frames may not be suited for all scenarios,
 # but depending on setup can speed up generations significantly and without changing
 # the visual output in a noticeable way. Leaving it off should be fine for current use cases.
-IS_TRANSFORM_PREV = False  # TODO? benchmark and visually compare results. make configurable from UI?
+IS_TRANSFORM_PREV = False  # TODO? benchmark and visually compare results. make configurable from UI or remove?
 
 
 @dataclass(frozen=False)

@@ -239,7 +239,7 @@ class RenderData:
             self.args.root.subseed_strength = float(keys.subseed_strength_schedule_series[i])
         if is_seed_managed_by_parseq:
             self.args.root.subseed_strength = keys.subseed_strength_schedule_series[i]
-            self.args.anim_args.enable_subseed_scheduling = True  # TODO should be enforced in init, not here.
+            self.args.anim_args.enable_subseed_scheduling = True  # TODO? move to init.
 
     def prompt_for_current_step(self, i):
         """returns value to be set back into the prompt"""

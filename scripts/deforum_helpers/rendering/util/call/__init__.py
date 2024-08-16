@@ -1,9 +1,9 @@
 """
-This module provides utility functions for simplifying calls to other modules within the `render.py` module.
+This module provides utility functions for simplifying calls to other modules within the `experimental_core.py` module.
 
 **Purpose:**
 - **Reduce Argument Complexity:**  Provides a way to call functions in other modules without directly handling
-  a large number of complex arguments. This simplifies code within `render.py` by encapsulating argument management.
+  a large number of complex arguments. This simplifies code within the core by encapsulating argument management.
 - **Minimize Namespace Pollution:**  Provides an alternative to overloading methods in the original modules,
   which would introduce the `RenderInit` class into namespaces where it's not inherently needed.
 
