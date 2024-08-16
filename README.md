@@ -1,91 +1,74 @@
-# Experimental Deforum Fork
-This is an experimental fork of the Deforum A1111 extension with a refactored render core that allows for 
-direct control of "turbo-frames" from Parseq. 
 
-### Current Status
-The forked extension is work in progress and may not be stable.
-Installation is recommended **only for the purpose of using the Parseq based key frame redistribution features**.
+# Deforum Stable Diffusion — official extension for AUTOMATIC1111's webui
 
-⚠️ Some Deforum features like hybrid video and coherence algorithms are currently not working and may need to be turned off.
+<p align="left">
+    <a href="https://github.com/deforum-art/sd-webui-deforum/commits"><img alt="Last Commit" src="https://img.shields.io/github/last-commit/deforum-art/deforum-for-automatic1111-webui"></a>
+    <a href="https://github.com/deforum-art/sd-webui-deforum/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/deforum-art/deforum-for-automatic1111-webui"></a>
+    <a href="https://github.com/deforum-art/sd-webui-deforum/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/deforum-art/deforum-for-automatic1111-webui"></a>
+    <a href="https://github.com/deforum-art/sd-webui-deforum/network"><img alt="GitHub forks" src="https://img.shields.io/github/forks/deforum-art/deforum-for-automatic1111-webui"></a>
+    </a>
+</p>
 
-For a feature complete and stable version, please refer to the original project at: [https://github.com/deforum-art/sd-webui-deforum](https://github.com/deforum-art/sd-webui-deforum)
+## Need help? See our [FAQ](https://github.com/deforum-art/sd-webui-deforum/wiki/FAQ-&-Troubleshooting)
 
-#### Installation
-Since the name of this extension is shared with the original, it requires a full removal of the regular Deforum extension from Automatic 1111.
-After that it can be installed from "Extensions" using "Install from URL": https://github.com/Tok/sd-webui-deforum
-The forked extension adds a new "Neo Core" tab in Deforum, with further information on how to properly use it.
+## Getting Started
 
-💡 The rest of this Readme can be skipped if you're not interested in the code.
+1. Install [AUTOMATIC1111's webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui/).
 
-## 🏎️ Parseq Key Frame Distribution
+2. Now two ways: either clone the repo into the `extensions` directory via git commandline launched within in the `stable-diffusion-webui` folder
 
-###  Purpose & Features
+```sh
+git clone https://github.com/deforum-art/sd-webui-deforum extensions/deforum
+```
 
-* Parseq Precision: All Parseq-provided key frames are guaranteed to be included in the final output, ensuring the highest possible sync precision.
-* Cadence Flexibility: Cadence settings can be set to exceptionally high values (e.g., 10, 20+) or can be ignored completely without losing Parseq synchronization, enabling fast generations with less diffusion steps.
-* No Workarounds: This approach eliminates the need for tricky workarounds when using Parseq with high or ignored cadence settings.
+Or download this repository, locate the `extensions` folder within your WebUI installation, create a folder named `deforum` and put the contents of the downloaded directory inside of it. Then restart WebUI.
 
-### 📊 Key Index Distribution Modes
+Or launch A1111, navigate to the Extensions tab, choose Available, find deforum in the list of available extensions and install it. Restart A1111 once the extension has been installed.
+3. Open the webui, find the Deforum tab at the top of the page.
 
-New key in 'deforum_settings.txt': "neocore_key_index_distribution"
+4. Enter the animation settings. Refer to [this general guide](https://docs.google.com/document/d/1pEobUknMFMkn8F5TMsv8qRzamXX_75BShMMXV8IFslI/edit) and [this guide to math keyframing functions in Deforum](https://docs.google.com/document/d/1pfW1PwbDIuW0cv-dnuyYj1UzPqe23BlSLTJsqazffXM/edit?usp=sharing). However, **in this version prompt weights less than zero don't just like in original Deforum!** Split the positive and the negative prompt in the json section using --neg argument like this "apple:\`where(cos(t)>=0, cos(t), 0)\`, snow --neg strawberry:\`where(cos(t)<0, -cos(t), 0)\`"
 
-#### 🕳️ PARSEQ_ONLY (without cadence)
-[`KeyIndexDistribution.PARSEQ_ONLY`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/rendering/data/step/key_index_distribution.py)
-This distribution **completely ignores cadence** and is only diffusing key frames defined in Parseq (=frames that have a table entry in Parseq). 
-All non-key frames are handled as if they would be cadence frames, although that term doesn't really apply when the key frames are not spaced out in fixed intervals.
+5. To view animation frames as they're being made, without waiting for the completion of an animation, go to the 'Settings' tab and set the value of this toolbar **above zero**. Warning: it may slow down the generation process.
 
-#### 〰️ UNIFORM_WITH_PARSEQ (variable pseudo cadence)
-[`KeyIndexDistribution.UNIFORM_WITH_PARSEQ`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/rendering/data/step/key_index_distribution.py)
-This mode ensures a uniform key frame distribution according to the specified cadence settings, while also prioritizing the inclusion of all key frames provided by Parseq.
+![adsdasunknown](https://user-images.githubusercontent.com/14872007/196064311-1b79866a-e55b-438a-84a7-004ff30829ad.png)
 
-Here's how it works:
-1. The uniform key frame distribution is calculated based on the cadence settings, creating a set of non-cadence key frames.
-2. The Parseq-provided key frames are then overlaid on top of this uniform distribution, replacing the closest non-cadence key frame.
 
-The `UNIFORM_WITH_PARSEQ` distribution prioritizes Parseq key frames over the uniform cadence-based distribution, providing a balance between sync precision and generation speed.
+6. Run the script and see if you got it working or even got something. **In 3D mode a large delay is expected at first** as the script loads the depth models. In the end, using the default settings the whole thing should consume 6.4 GBs of VRAM at 3D mode peaks and no more than 3.8 GB VRAM in 3D mode if you launch the webui with the '--lowvram' command line argument.
 
-In essence, it means that **all Parseq key frames**, will be guaranteed to not
-be a cadence-frames. We gain Parseq precision at the tradeoff of cadence regularity.
+7. After the generation process is completed, click the button with the self-describing name to show the video or gif result right in the GUI!
 
-##### Pseudo Cadence
-`cadence` is still loosely observed in this mode, but since key frames are rearranged, the cadence settings should be understood as an average value.
-In UNIFORM_WITH_PARSEQ mode, a cadence setting of "10" means "about 10".
+8. Join our Discord where you can post generated stuff, ask questions and more: https://discord.gg/deforum. <br>
+* There's also the 'Issues' tab in the repo, for well... reporting issues ;)
 
-## 📼 Video Examples
+9. Profit!
 
-### Parseq Synchronized Music Video
-This music video was **generated in less than only 92 minutes on a 4070**, directly at 60 FPS and with a resolution of 1280x720.
-It contains 6694 frames of which only 913 were actually diffused, but in full sync with Parseq. 
-Calculated pseudo cadence is 6694 / 913 = 7.33. More details in video description.
+## Known issues
 
-"neocore_key_index_distribution": "Parseq Only"
+* This port is not fully backward-compatible with the notebook and the local version both due to the changes in how AUTOMATIC1111's webui handles Stable Diffusion models and the changes in this script to get it to work in the new environment. *Expect* that you may not get exactly the same result or that the thing may break down because of the older settings.
 
-#### Mark Fell - multistability 2-b
-[![Mark Fell - multistability 2-b](https://img.youtube.com/vi/K-9V5Tntck4/maxresdefault.jpg)](https://www.youtube.com/watch?v=K-9V5Tntck4 "Click to watch on YouTube")
+## Screenshots
 
-## 🧹 Refactored Render Core
-This section details the changes made to the render core in this fork.
+Amazing raw Deforum animation by [Pxl.Pshr](https://www.instagram.com/pxl.pshr):
+* Turn Audio ON!
 
-For easy integration, this fork isolates changes mostly to the [`render.py`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/render.py) module and introduces the [`rendering`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/rendering) package.
-Existing code in other Deforum modules, remains mostly unchanged (exception is UI and args related code).
+(Audio credits: SKRILLEX, FRED AGAIN & FLOWDAN - RUMBLE (PHACE'S DNB FLIP))
 
-![image](https://i.kym-cdn.com/photos/images/original/001/399/018/31f.gif)
+https://user-images.githubusercontent.com/121192995/224450647-39529b28-be04-4871-bb7a-faf7afda2ef2.mp4
 
-* **🛠️ Focus on Maintainability:** The core rendering functionality is being refactored step-by-step with a focus on improved readability, testability, and easier future modifications.
-* **☝️ Key Improvements:**
-  * Reduced cyclomatic complexity of the [`render_animation`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/render.py#L41) method.
-  * Improved separation of concerns (e.g., dedicated module for printing).
-  * Reduced argument complexity and improved scope control and variable organization using dataclasses.
-  * Enhanced code clarity with improved naming and removal of obsolete comments.
-    * But preserving domain specific lingo.
-  * Improved unit testing capabilities due to a more modular structure and due to using expressions in place of statements where applicable.
+Setting file of that video: [here](https://github.com/deforum-art/sd-webui-deforum/files/11353167/PxlPshrWinningAnimationSettings.txt).
 
-**🆕 New Rendering Modules:**
-* [`rendering/img_2_img_tubes`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/rendering/img_2_img_tubes.py): Provides functions for conditionally processing images through various transformations.
-* [`rendering/data`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/rendering/data): Provides a set of dataclasses specifically designed for data and logic handling within `render.py`.
-* [`rendering/util`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/rendering/util): Contains stateless utility functions for data transformation and manipulation used in `render.py`.
-* [`rendering/util/call`](https://github.com/Tok/sd-webui-deforum/blob/automatic1111-webui/scripts/deforum_helpers/rendering/util/call): Provides modules to forward calls to other Deforum modules and adapt them to work with the new data structures without modifying the original code and without polluting any receiver namespace.
+<br>
 
-**🔎 Implementation Details:**
-* **Multiparadigmatic:** The code leverages a procedural core with functional tools to transform object-oriented data structures.
-* **Style and Standards:** The code adheres to PEP 8 style guidelines and to other such practices.
+Main extension tab:
+
+![image](https://user-images.githubusercontent.com/121192995/226101131-43bf594a-3152-45dd-a5d1-2538d0bc221d.png)
+
+Keyframes tab:
+
+![image](https://user-images.githubusercontent.com/121192995/226101140-bfe6cce7-9b78-4a1d-be9a-43e1fc78239e.png)
+
+## License
+
+This program is distributed under the terms of the GNU Affero Public License v3.0, copyright (c) 2023 Deforum LLC.
+
+Some of its sublicensed integrated 3rd party components may have other licenses, see LICENSE for usage terms.
